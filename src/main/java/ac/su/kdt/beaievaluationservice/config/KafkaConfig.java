@@ -2,14 +2,15 @@ package ac.su.kdt.beaievaluationservice.config;
 
 import ac.su.kdt.beaievaluationservice.kafka.event.MissionCompletedEvent;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
-import org.springframework.kafka.core.ConsumerFactory;
-import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.core.*;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 
@@ -57,5 +58,28 @@ public class KafkaConfig {
         factory.getContainerProperties().setSyncCommits(true);
         
         return factory;
+    }
+
+    // Producer 설정 - evaluation.completed 이벤트 발행용
+    @Bean
+    public ProducerFactory<String, String> producerFactory() {
+        Map<String, Object> configProps = new HashMap<>();
+        configProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        configProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        configProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        
+        // 성능 및 안정성 설정
+        configProps.put(ProducerConfig.ACKS_CONFIG, "1"); // 리더 파티션 확인
+        configProps.put(ProducerConfig.RETRIES_CONFIG, 3); // 재시도 횟수
+        configProps.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384); // 배치 크기
+        configProps.put(ProducerConfig.LINGER_MS_CONFIG, 10); // 배치 대기 시간
+        configProps.put(ProducerConfig.BUFFER_MEMORY_CONFIG, 33554432); // 버퍼 메모리
+
+        return new DefaultKafkaProducerFactory<>(configProps);
+    }
+
+    @Bean
+    public KafkaTemplate<String, String> kafkaTemplate() {
+        return new KafkaTemplate<>(producerFactory());
     }
 }

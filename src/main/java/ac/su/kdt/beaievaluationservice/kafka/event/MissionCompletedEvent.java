@@ -20,4 +20,8 @@ public class MissionCompletedEvent {
     private String code;
     private String missionTitle;
     private LocalDateTime completedAt;
+    
+    // Prometheus 메트릭 수집을 위한 시간 구간
+    private LocalDateTime startAt; // 미션 시작 시간
+    private LocalDateTime endAt;   // 미션 종료 시간
 }

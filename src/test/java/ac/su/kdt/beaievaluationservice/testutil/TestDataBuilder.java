@@ -8,6 +8,8 @@ import ac.su.kdt.beaievaluationservice.dto.EvaluationResultDTO;
 
 import java.time.LocalDateTime;
 
+// 테스트 데이터 생성을 위한 빌더 패턴을 사용하여
+// 다양한 테스트 케이스에 필요한 객체들을 쉽게 생성할 수 있도록 도와줍
 public class TestDataBuilder {
 
     public static class MissionCompletedEventBuilder {

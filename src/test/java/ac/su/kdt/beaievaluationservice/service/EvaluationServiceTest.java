@@ -1,13 +1,16 @@
 package ac.su.kdt.beaievaluationservice.service;
 
+import ac.su.kdt.beaievaluationservice.analyzer.MetricAnalyzer;
+import ac.su.kdt.beaievaluationservice.client.PrometheusClient;
 import ac.su.kdt.beaievaluationservice.dto.EvaluationResultDTO;
 import ac.su.kdt.beaievaluationservice.entity.AIEvaluation;
 import ac.su.kdt.beaievaluationservice.entity.EvaluationSummary;
 import ac.su.kdt.beaievaluationservice.entity.EvaluationHistory;
+import ac.su.kdt.beaievaluationservice.kafka.event.MissionCompletedEvent;
+import ac.su.kdt.beaievaluationservice.kafka.publisher.EvaluationEventPublisher;
 import ac.su.kdt.beaievaluationservice.repository.AIEvaluationRepository;
 import ac.su.kdt.beaievaluationservice.repository.EvaluationSummaryRepository;
 import ac.su.kdt.beaievaluationservice.repository.EvaluationHistoryRepository;
-import ac.su.kdt.beaievaluationservice.kafka.event.MissionCompletedEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -23,6 +26,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+// AI 평가 서비스 테스트
 @ExtendWith(MockitoExtension.class)
 @DisplayName("EvaluationService 단위 테스트")
 class EvaluationServiceTest {
@@ -38,6 +42,15 @@ class EvaluationServiceTest {
 
     @Mock
     private GeminiEvaluationService geminiEvaluationService;
+    
+    @Mock
+    private PrometheusClient prometheusClient;
+    
+    @Mock
+    private MetricAnalyzer metricAnalyzer;
+    
+    @Mock
+    private EvaluationEventPublisher evaluationEventPublisher;
 
     @Mock
     private ObjectMapper objectMapper;
@@ -73,6 +86,7 @@ class EvaluationServiceTest {
         verify(evaluationSummaryRepository).save(any(EvaluationSummary.class));
         verify(evaluationHistoryRepository, times(3)).save(any(EvaluationHistory.class)); // 3 status changes
         verify(geminiEvaluationService).evaluateCode(testEvent.getCode(), testEvent.getMissionType(), testEvent.getMissionId());
+        verify(evaluationEventPublisher).publishEvaluationCompleted(any());
     }
 
     @Test
@@ -112,6 +126,7 @@ class EvaluationServiceTest {
             return true;
         }));
         verify(evaluationSummaryRepository, never()).save(any(EvaluationSummary.class));
+        verify(evaluationEventPublisher).publishEvaluationFailed(anyString(), anyString(), anyString());
     }
 
     @Test
@@ -136,6 +151,7 @@ class EvaluationServiceTest {
             return true;
         }));
         verify(evaluationSummaryRepository, never()).save(any(EvaluationSummary.class));
+        verify(evaluationEventPublisher).publishEvaluationFailed(anyString(), anyString(), anyString());
     }
 
     @Test

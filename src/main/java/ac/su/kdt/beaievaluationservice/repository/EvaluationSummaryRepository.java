@@ -38,4 +38,6 @@ public interface EvaluationSummaryRepository extends JpaRepository<EvaluationSum
     @Query("SELECT es FROM EvaluationSummary es WHERE es.userId = :userId AND es.overallScore >= :minScore AND es.status = 'COMPLETED'")
     List<EvaluationSummary> findHighScoreEvaluations(@Param("userId") String userId, @Param("minScore") Integer minScore);
 
+    List<EvaluationSummary> findByUserIdOrderByCreatedAtDesc(String userId);
+
 }

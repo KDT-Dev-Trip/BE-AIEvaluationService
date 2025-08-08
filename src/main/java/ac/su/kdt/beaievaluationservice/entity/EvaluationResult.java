@@ -1,4 +1,4 @@
-package ac.su.kdt.beaievaluationservice.evaluation.model;
+package ac.su.kdt.beaievaluationservice.entity;
 
 import lombok.Data;
 import java.time.LocalDateTime;

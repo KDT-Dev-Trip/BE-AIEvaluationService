@@ -28,4 +28,6 @@ public interface AIEvaluationRepository extends JpaRepository<AIEvaluation, Long
     // 특정 미션 시도 ID 목록에 해당하는 AIEvaluation 엔티티 조회
 
     boolean existsByMissionAttemptId(String missionAttemptId);
+    
+    long countByStatus(AIEvaluation.EvaluationStatus status);
 }

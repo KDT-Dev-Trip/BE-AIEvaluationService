@@ -1,0 +1,391 @@
+{
+  "info": {
+    "name": "AI 평가 시스템 API",
+    "description": "AI 코드 평가 시스템의 REST API 테스트 컬렉션입니다.\n\n## 사용법\n1. 애플리케이션 실행: ./gradlew bootRun\n2. 헬스 체크로 시스템 상태 확인\n3. 샘플 데이터 생성\n4. 임시 저장 → AI 평가 순서로 테스트\n\n## 주요 기능\n- 임시 저장: 미션 진행 중 코드 저장\n- AI 평가: 최종 완료 시 Gemini API로 코드 평가\n- 시스템 관리: 상태 조회, 데이터 관리",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "🏥 시스템 상태",
+      "item": [
+        {
+          "name": "헬스 체크",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/test/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["test", "health"]
+            }
+          }
+        },
+        {
+          "name": "데이터베이스 상태",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/test/database/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["test", "database", "status"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "📊 테스트 데이터",
+      "item": [
+        {
+          "name": "샘플 데이터 생성",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/test/data/sample",
+              "host": ["{{baseUrl}}"],
+              "path": ["test", "data", "sample"]
+            }
+          }
+        },
+        {
+          "name": "모든 데이터 삭제 ⚠️",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/test/data/all",
+              "host": ["{{baseUrl}}"],
+              "path": ["test", "data", "all"]
+            }
+          }
+        },
+        {
+          "name": "특정 사용자 데이터 삭제",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/test/data/user/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["test", "data", "user", "{{userId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "💾 임시 저장",
+      "item": [
+        {
+          "name": "임시 저장 생성",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"missionId\": \"{{missionId}}\",\n  \"missionAttemptId\": \"{{missionAttemptId}}\",\n  \"missionType\": \"Java\",\n  \"missionTitle\": \"Java 기초 실습\",\n  \"tempCode\": \"public class Hello {\\n    public static void main(String[] args) {\\n        System.out.println(\\\"Hello World\\\");\\n    }\\n}\",\n  \"saveCount\": 1,\n  \"saveReason\": \"manual_save\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/temp-save",
+              "host": ["{{baseUrl}}"],
+              "path": ["temp-save"]
+            }
+          }
+        },
+        {
+          "name": "임시 저장 업데이트",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"missionId\": \"{{missionId}}\",\n  \"missionAttemptId\": \"{{missionAttemptId}}\",\n  \"missionType\": \"Java\",\n  \"missionTitle\": \"Java 기초 실습\",\n  \"tempCode\": \"public class Hello {\\n    public static void main(String[] args) {\\n        System.out.println(\\\"Hello World Updated!\\\");\\n        // 추가된 주석\\n    }\\n}\",\n  \"saveCount\": 2,\n  \"saveReason\": \"manual_save\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/temp-save",
+              "host": ["{{baseUrl}}"],
+              "path": ["temp-save"]
+            }
+          }
+        },
+        {
+          "name": "임시 저장 조회",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/temp-save/{{missionAttemptId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["temp-save", "{{missionAttemptId}}"]
+            }
+          }
+        },
+        {
+          "name": "사용자 미완료 목록",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/temp-save/user/{{userId}}/incomplete",
+              "host": ["{{baseUrl}}"],
+              "path": ["temp-save", "user", "{{userId}}", "incomplete"]
+            }
+          }
+        },
+        {
+          "name": "임시 저장 통계",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/temp-save/user/{{userId}}/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["temp-save", "user", "{{userId}}", "stats"]
+            }
+          }
+        },
+        {
+          "name": "최종 완료 처리",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/temp-save/{{missionAttemptId}}/complete",
+              "host": ["{{baseUrl}}"],
+              "path": ["temp-save", "{{missionAttemptId}}", "complete"]
+            }
+          }
+        },
+        {
+          "name": "임시 저장 삭제",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/temp-save/{{missionAttemptId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["temp-save", "{{missionAttemptId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "🤖 AI 평가",
+      "item": [
+        {
+          "name": "AI 평가 시작",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"missionId\": \"{{missionId}}\",\n  \"missionAttemptId\": \"{{evaluationAttemptId}}\",\n  \"missionType\": \"Java\",\n  \"missionTitle\": \"Java Calculator 구현\",\n  \"code\": \"public class Calculator {\\n    public int add(int a, int b) {\\n        return a + b;\\n    }\\n    \\n    public int subtract(int a, int b) {\\n        return a - b;\\n    }\\n    \\n    public int multiply(int a, int b) {\\n        return a * b;\\n    }\\n    \\n    public double divide(int a, int b) {\\n        if (b == 0) {\\n            throw new IllegalArgumentException(\\\"Division by zero\\\");\\n        }\\n        return (double) a / b;\\n    }\\n}\",\n  \"startAt\": \"2025-08-08T15:00:00\",\n  \"endAt\": \"2025-08-08T16:00:00\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/evaluation/start",
+              "host": ["{{baseUrl}}"],
+              "path": ["evaluation", "start"]
+            }
+          }
+        },
+        {
+          "name": "AI 평가 결과 조회",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/evaluation/{{evaluationAttemptId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["evaluation", "{{evaluationAttemptId}}"]
+            }
+          }
+        },
+        {
+          "name": "사용자 평가 이력",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/evaluation/user/{{userId}}/history",
+              "host": ["{{baseUrl}}"],
+              "path": ["evaluation", "user", "{{userId}}", "history"]
+            }
+          }
+        },
+        {
+          "name": "상태별 평가 조회 - COMPLETED",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/evaluation/status/COMPLETED",
+              "host": ["{{baseUrl}}"],
+              "path": ["evaluation", "status", "COMPLETED"]
+            }
+          }
+        },
+        {
+          "name": "상태별 평가 조회 - PROCESSING",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/evaluation/status/PROCESSING",
+              "host": ["{{baseUrl}}"],
+              "path": ["evaluation", "status", "PROCESSING"]
+            }
+          }
+        },
+        {
+          "name": "상태별 평가 조회 - FAILED",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/evaluation/status/FAILED",
+              "host": ["{{baseUrl}}"],
+              "path": ["evaluation", "status", "FAILED"]
+            }
+          }
+        },
+        {
+          "name": "전체 평가 통계",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/evaluation/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["evaluation", "stats"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "🎯 시나리오 테스트",
+      "item": [
+        {
+          "name": "시나리오 1-1: 임시 저장 생성",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"scenario-user-001\",\n  \"missionId\": \"scenario-mission-001\",\n  \"missionAttemptId\": \"scenario-attempt-001\",\n  \"missionType\": \"Python\",\n  \"missionTitle\": \"Python 피보나치 수열\",\n  \"tempCode\": \"def fibonacci(n):\\n    if n <= 1:\\n        return n\\n    # TODO: 구현 중...\",\n  \"saveCount\": 1,\n  \"saveReason\": \"manual_save\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/temp-save",
+              "host": ["{{baseUrl}}"],
+              "path": ["temp-save"]
+            }
+          }
+        },
+        {
+          "name": "시나리오 1-2: 임시 저장 업데이트",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"scenario-user-001\",\n  \"missionId\": \"scenario-mission-001\",\n  \"missionAttemptId\": \"scenario-attempt-001\",\n  \"missionType\": \"Python\",\n  \"missionTitle\": \"Python 피보나치 수열\",\n  \"tempCode\": \"def fibonacci(n):\\n    if n <= 1:\\n        return n\\n    return fibonacci(n-1) + fibonacci(n-2)\\n\\n# 테스트\\nprint(fibonacci(10))\",\n  \"saveCount\": 2,\n  \"saveReason\": \"manual_save\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/temp-save",
+              "host": ["{{baseUrl}}"],
+              "path": ["temp-save"]
+            }
+          }
+        },
+        {
+          "name": "시나리오 1-3: 최종 완료 및 AI 평가",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"scenario-user-001\",\n  \"missionId\": \"scenario-mission-001\",\n  \"missionAttemptId\": \"scenario-attempt-001\",\n  \"missionType\": \"Python\",\n  \"missionTitle\": \"Python 피보나치 수열\",\n  \"code\": \"def fibonacci(n):\\n    \\\"\\\"\\\"피보나치 수열의 n번째 값을 반환합니다.\\\"\\\"\\\"\\n    if n <= 1:\\n        return n\\n    return fibonacci(n-1) + fibonacci(n-2)\\n\\n# 메모이제이션을 사용한 최적화 버전\\ndef fibonacci_optimized(n, memo={}): \\n    if n in memo:\\n        return memo[n]\\n    if n <= 1:\\n        return n\\n    memo[n] = fibonacci_optimized(n-1, memo) + fibonacci_optimized(n-2, memo)\\n    return memo[n]\\n\\n# 테스트 실행\\nif __name__ == '__main__':\\n    for i in range(10):\\n        print(f'fibonacci({i}) = {fibonacci_optimized(i)}')\",\n  \"startAt\": \"2025-08-08T14:00:00\",\n  \"endAt\": \"2025-08-08T15:00:00\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/evaluation/start",
+              "host": ["{{baseUrl}}"],
+              "path": ["evaluation", "start"]
+            }
+          }
+        },
+        {
+          "name": "시나리오 1-4: 평가 결과 확인",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/evaluation/scenario-attempt-001",
+              "host": ["{{baseUrl}}"],
+              "path": ["evaluation", "scenario-attempt-001"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "test-user-001",
+      "type": "string"
+    },
+    {
+      "key": "missionId",
+      "value": "mission-java-001",
+      "type": "string"
+    },
+    {
+      "key": "missionAttemptId",
+      "value": "attempt-{{$timestamp}}",
+      "type": "string"
+    },
+    {
+      "key": "evaluationAttemptId",
+      "value": "eval-{{$timestamp}}",
+      "type": "string"
+    }
+  ]
+}

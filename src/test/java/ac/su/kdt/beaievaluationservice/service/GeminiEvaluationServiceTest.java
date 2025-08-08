@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+// Gemini AI를 사용하여 코드 평가를 수행하는 서비스의 기능을 검증하는 테스트
 @ExtendWith(MockitoExtension.class)
 @DisplayName("GeminiEvaluationService 단위 테스트")
 class GeminiEvaluationServiceTest {

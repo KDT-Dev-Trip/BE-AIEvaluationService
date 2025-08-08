@@ -33,6 +33,15 @@ import static org.mockito.Mockito.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.awaitility.Awaitility.await;
 
+// AI 평가 시스템의 End-to-End 통합 테스트
+// 1. MissionCompletedEvent 수신
+// 2. AIEvaluation 엔티티 생성 (PENDING 상태)
+// 3. Gemini API 호출 (비동기)
+// 4. Gemini API 응답 처리
+//    - 성공: AIEvaluation 상태 COMPLETED로 변경, EvaluationSummary 생성
+//    - 실패: AIEvaluation 상태 FAILED로 변경, 에러 메시지 저장
+// 5. EvaluationHistory 기록 (상태 변경 이력 저장)
+
 @SpringBootTest
 @Transactional
 @TestPropertySource(properties = {

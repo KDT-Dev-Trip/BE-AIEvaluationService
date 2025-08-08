@@ -15,6 +15,7 @@ import org.springframework.kafka.support.Acknowledgment;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+// MissionCompletedEventConsumer의 단위 테스트를 작성합니다.
 @ExtendWith(MockitoExtension.class)
 @DisplayName("MissionCompletedEventConsumer 단위 테스트")
 class MissionCompletedEventConsumerTest {
