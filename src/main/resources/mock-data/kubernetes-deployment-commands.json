@@ -1,0 +1,124 @@
+{
+  "mission_attempt_id": "kubernetes-mission-123",
+  "execution_log": {
+    "commands": [
+      {
+        "timestamp": "2025-01-15T10:30:15Z",
+        "command": "kubectl apply -f deployment.yaml",
+        "output": "deployment.apps/nginx-deployment created",
+        "exit_code": 0,
+        "duration_ms": 1250
+      },
+      {
+        "timestamp": "2025-01-15T10:30:20Z",
+        "command": "kubectl apply -f service.yaml",
+        "output": "service/nginx-service created",
+        "exit_code": 0,
+        "duration_ms": 890
+      },
+      {
+        "timestamp": "2025-01-15T10:30:25Z",
+        "command": "kubectl get pods",
+        "output": "NAME                               READY   STATUS    RESTARTS   AGE\nnginx-deployment-7d8c4d5f6b-abc123   1/1     Running   0          5s\nnginx-deployment-7d8c4d5f6b-def456   1/1     Running   0          5s",
+        "exit_code": 0,
+        "duration_ms": 450
+      },
+      {
+        "timestamp": "2025-01-15T10:30:30Z",
+        "command": "kubectl get service nginx-service",
+        "output": "NAME            TYPE           CLUSTER-IP       EXTERNAL-IP     PORT(S)        AGE\nnginx-service   LoadBalancer   10.96.123.45     <pending>       80:32567/TCP   5s",
+        "exit_code": 0,
+        "duration_ms": 320
+      },
+      {
+        "timestamp": "2025-01-15T10:30:35Z",
+        "command": "kubectl apply -f ingress.yaml",
+        "output": "Error from server (BadRequest): error validating data: ValidationError(Ingress.spec): unknown field \"ingressClassName\" in io.k8s.api.networking.v1.IngressSpec",
+        "exit_code": 1,
+        "duration_ms": 680
+      },
+      {
+        "timestamp": "2025-01-15T10:30:45Z",
+        "command": "kubectl describe pod nginx-deployment-7d8c4d5f6b-abc123",
+        "output": "Name:         nginx-deployment-7d8c4d5f6b-abc123\nNamespace:    default\nPriority:     0\nNode:         minikube/192.168.49.2\nStart Time:   Wed, 15 Jan 2025 10:30:20 UTC\nLabels:       app=nginx\n              pod-template-hash=7d8c4d5f6b\nStatus:       Running\nIP:           172.17.0.4\nControlled By:  ReplicaSet/nginx-deployment-7d8c4d5f6b\nContainers:\n  nginx:\n    Container ID:   docker://abc123def456789\n    Image:          nginx:1.21\n    Port:           80/TCP\n    State:          Running\n      Started:      Wed, 15 Jan 2025 10:30:22 UTC\n    Ready:          True\n    Restart Count:  0\nConditions:\n  Type              Status\n  Initialized       True\n  Ready             True\n  ContainersReady   True\n  PodScheduled      True",
+        "exit_code": 0,
+        "duration_ms": 1120
+      },
+      {
+        "timestamp": "2025-01-15T10:31:00Z",
+        "command": "kubectl port-forward service/nginx-service 8080:80",
+        "output": "Forwarding from 127.0.0.1:8080 -> 80\nForwarding from [::1]:8080 -> 80",
+        "exit_code": 0,
+        "duration_ms": 2500,
+        "note": "Command was interrupted after 2.5 seconds for testing"
+      },
+      {
+        "timestamp": "2025-01-15T10:31:05Z",
+        "command": "curl http://localhost:8080",
+        "output": "<!DOCTYPE html>\n<html>\n<head>\n<title>Welcome to nginx!</title>\n</head>\n<body>\n<h1>Welcome to nginx!</h1>\n<p>If you see this page, the nginx web server is successfully installed and working.</p>\n</body>\n</html>",
+        "exit_code": 0,
+        "duration_ms": 156
+      }
+    ],
+    "summary": {
+      "total_commands": 8,
+      "successful_commands": 7,
+      "failed_commands": 1,
+      "total_duration_ms": 8366,
+      "error_commands": [
+        {
+          "command": "kubectl apply -f ingress.yaml",
+          "error": "ValidationError: unknown field ingressClassName"
+        }
+      ]
+    }
+  },
+  "resource_metrics": {
+    "collection_interval_seconds": 5,
+    "metrics": [
+      {
+        "timestamp": "2025-01-15T10:30:15Z",
+        "cpu_usage_percent": 12.5,
+        "memory_usage_mb": 512,
+        "network_rx_bytes": 1024,
+        "network_tx_bytes": 2048
+      },
+      {
+        "timestamp": "2025-01-15T10:30:20Z",
+        "cpu_usage_percent": 45.2,
+        "memory_usage_mb": 768,
+        "network_rx_bytes": 5120,
+        "network_tx_bytes": 8192
+      },
+      {
+        "timestamp": "2025-01-15T10:30:25Z",
+        "cpu_usage_percent": 67.8,
+        "memory_usage_mb": 892,
+        "network_rx_bytes": 12288,
+        "network_tx_bytes": 16384
+      },
+      {
+        "timestamp": "2025-01-15T10:30:30Z",
+        "cpu_usage_percent": 23.4,
+        "memory_usage_mb": 445,
+        "network_rx_bytes": 8192,
+        "network_tx_bytes": 4096
+      },
+      {
+        "timestamp": "2025-01-15T10:30:35Z",
+        "cpu_usage_percent": 18.9,
+        "memory_usage_mb": 389,
+        "network_rx_bytes": 2048,
+        "network_tx_bytes": 1024
+      }
+    ],
+    "summary": {
+      "avg_cpu_usage_percent": 33.56,
+      "max_cpu_usage_percent": 67.8,
+      "avg_memory_usage_mb": 601.2,
+      "max_memory_usage_mb": 892,
+      "total_network_rx_bytes": 28672,
+      "total_network_tx_bytes": 31744
+    }
+  }
+}

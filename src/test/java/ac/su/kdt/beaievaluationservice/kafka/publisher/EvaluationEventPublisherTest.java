@@ -59,10 +59,13 @@ class EvaluationEventPublisherTest {
                 .evaluationStatus("COMPLETED")
                 .completedAt(LocalDateTime.now())
                 .processingTimeMs(5000L)
-                .hasCpuIssues(false)
-                .hasMemoryIssues(false)
-                .hasResponseTimeIssues(true)
-                .performanceSummary("응답 시간이 지연되고 있습니다.")
+                .commandSuccessCount(8)
+                .commandFailureCount(2)
+                .averageCpuUsage(45.5)
+                .maxCpuUsage(78.0)
+                .averageMemoryUsage(512.0)
+                .maxMemoryUsage(1024.0)
+                .totalExecutionTime(15000L)
                 .build();
 
         String eventJson = "{\"mission_attempt_id\":\"mission-123\"}";
@@ -191,11 +194,13 @@ class EvaluationEventPublisherTest {
                 .missionAttemptId("mission-123")
                 .userId("user-456")
                 .evaluationStatus("COMPLETED")
-                .performanceGrade("FAIR")
-                .hasCpuIssues(true)
-                .hasMemoryIssues(false)
-                .hasResponseTimeIssues(true)
-                .performanceSummary("CPU 사용률이 높습니다. 응답 시간이 지연되고 있습니다.")
+                .commandSuccessCount(5)
+                .commandFailureCount(3)
+                .averageCpuUsage(85.5)
+                .maxCpuUsage(95.0)
+                .averageMemoryUsage(800.0)
+                .maxMemoryUsage(1200.0)
+                .totalExecutionTime(25000L)
                 .build();
 
         String eventJson = "{\"performance_grade\":\"FAIR\"}";

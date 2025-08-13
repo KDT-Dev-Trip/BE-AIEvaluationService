@@ -1,12 +1,10 @@
 package ac.su.kdt.beaievaluationservice.service;
 
-import ac.su.kdt.beaievaluationservice.analyzer.MetricAnalyzer;
-import ac.su.kdt.beaievaluationservice.analyzer.dto.MetricSummaryDto;
-import ac.su.kdt.beaievaluationservice.client.PrometheusClient;
-import ac.su.kdt.beaievaluationservice.client.dto.MetricDataPoint;
 import ac.su.kdt.beaievaluationservice.dto.EvaluationResultDTO;
 import ac.su.kdt.beaievaluationservice.entity.AIEvaluation;
-import ac.su.kdt.beaievaluationservice.kafka.event.EvaluationCompletedEvent;
+import ac.su.kdt.beaievaluationservice.entity.EvaluationSummary;
+import ac.su.kdt.beaievaluationservice.entity.EvaluationHistory;
+import ac.su.kdt.beaievaluationservice.entity.MissionTempSave;
 import ac.su.kdt.beaievaluationservice.kafka.event.MissionCompletedEvent;
 import ac.su.kdt.beaievaluationservice.kafka.publisher.EvaluationEventPublisher;
 import ac.su.kdt.beaievaluationservice.repository.AIEvaluationRepository;
@@ -17,232 +15,348 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.time.Instant;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.List;
+import java.util.Optional;
 
-import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.*;
 
-@DisplayName("향상된 EvaluationService 테스트 - Prometheus 메트릭 + 이벤트 발행")
+/**
+ * 개선된 AI 평가 서비스 테스트 (TDD 방식)
+ * - Prometheus 의존성 제거됨
+ * - 새로운 평가 방식: 미션 목표, 체크리스트, S3 URL, 통계 정보 포함
+ * - evaluation.completed 이벤트 발행 검증
+ */
 @ExtendWith(MockitoExtension.class)
+@DisplayName("Enhanced EvaluationService 단위 테스트 - 새로운 평가 방식")
 class EnhancedEvaluationServiceTest {
 
-    @Mock private AIEvaluationRepository aiEvaluationRepository;
-    @Mock private EvaluationSummaryRepository evaluationSummaryRepository;
-    @Mock private EvaluationHistoryRepository evaluationHistoryRepository;
-    @Mock private GeminiEvaluationService geminiEvaluationService;
-    @Mock private PrometheusClient prometheusClient;
-    @Mock private MetricAnalyzer metricAnalyzer;
-    @Mock private EvaluationEventPublisher evaluationEventPublisher;
-    @Mock private ObjectMapper objectMapper;
+    @Mock
+    private AIEvaluationRepository aiEvaluationRepository;
+
+    @Mock
+    private EvaluationSummaryRepository evaluationSummaryRepository;
+
+    @Mock
+    private EvaluationHistoryRepository evaluationHistoryRepository;
+
+    @Mock
+    private GeminiEvaluationService geminiEvaluationService;
+    
+    @Mock
+    private MissionTempSaveService missionTempSaveService;
+    
+    @Mock
+    private EvaluationEventPublisher evaluationEventPublisher;
+
+    @Mock
+    private ObjectMapper objectMapper;
 
     @InjectMocks
     private EvaluationService evaluationService;
 
-    private MissionCompletedEvent testEvent;
+    private MissionCompletedEvent testEventWithEnhancedFields;
+    private MissionCompletedEvent basicTestEvent;
     private AIEvaluation testEvaluation;
     private EvaluationResultDTO testResult;
+    private MissionTempSave mockTempSave;
 
     @BeforeEach
     void setUp() {
-        testEvent = createTestMissionCompletedEventWithTimeRange();
+        testEventWithEnhancedFields = createEnhancedMissionCompletedEvent();
+        basicTestEvent = createBasicMissionCompletedEvent();
         testEvaluation = createTestAIEvaluation();
         testResult = createTestEvaluationResult();
+        mockTempSave = createMockTempSave();
     }
 
     @Test
-    @DisplayName("Prometheus 메트릭 수집 및 성능 분석 통합 - 성공 케이스")
-    void processEvaluationAsync_WithMetricsCollection_Success() throws Exception {
-        // Given
+    @DisplayName("새로운 평가 방식 - 미션 목표, 체크리스트, S3 URL, 통계 정보 포함된 성공적인 평가")
+    void processEvaluationAsync_WithEnhancedFields_Success() throws Exception {
+        // Given - 향상된 필드들이 포함된 이벤트
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(geminiEvaluationService.evaluateCode(anyString(), anyString(), anyString())).thenReturn(testResult);
-        when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":85}");
-
-        // Prometheus 메트릭 데이터 모킹
-        List<MetricDataPoint> cpuData = createCpuMetricData();
-        List<MetricDataPoint> memoryData = createMemoryMetricData();
-        List<MetricDataPoint> responseTimeData = createResponseTimeMetricData();
+        when(missionTempSaveService.getTempSave("attempt-123")).thenReturn(Optional.empty());
         
-        when(prometheusClient.queryMissionMetrics(eq("cpu_usage"), eq("attempt-123"), 
-            any(LocalDateTime.class), any(LocalDateTime.class), eq(15)))
-            .thenReturn(cpuData);
-        when(prometheusClient.queryMissionMetrics(eq("memory_usage"), eq("attempt-123"), 
-            any(LocalDateTime.class), any(LocalDateTime.class), eq(15)))
-            .thenReturn(memoryData);
-        when(prometheusClient.queryMissionMetrics(eq("response_time"), eq("attempt-123"), 
-            any(LocalDateTime.class), any(LocalDateTime.class), eq(15)))
-            .thenReturn(responseTimeData);
-
-        // 메트릭 분석 결과 모킹
-        MetricSummaryDto performanceSummary = createTestMetricSummary();
-        when(metricAnalyzer.analyzeMissionPerformance(eq("attempt-123"), eq("user-123"), any(Map.class)))
-            .thenReturn(performanceSummary);
+        // 새로운 8개 파라미터 메서드 호출 모킹
+        when(geminiEvaluationService.evaluateCode(
+            eq(testEventWithEnhancedFields.getCode()),
+            eq(testEventWithEnhancedFields.getMissionType()),
+            eq(testEventWithEnhancedFields.getMissionId()),
+            eq(testEventWithEnhancedFields.getMissionObjective()),
+            eq(testEventWithEnhancedFields.getChecklist()),
+            eq(testEventWithEnhancedFields.getS3StorageUrl()),
+            eq(testEventWithEnhancedFields.getS3PreSignedUrl()),
+            eq(testEventWithEnhancedFields.getStatistics())
+        )).thenReturn(testResult);
+        
+        when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":88}");
 
         // When
-        evaluationService.processEvaluationAsync(testEvent);
+        evaluationService.processEvaluationAsync(testEventWithEnhancedFields);
 
-        // Then - Prometheus 메트릭 조회 검증
-        verify(prometheusClient).queryMissionMetrics("cpu_usage", "attempt-123", 
-            testEvent.getStartAt(), testEvent.getEndAt(), 15);
-        verify(prometheusClient).queryMissionMetrics("memory_usage", "attempt-123", 
-            testEvent.getStartAt(), testEvent.getEndAt(), 15);
-        verify(prometheusClient).queryMissionMetrics("response_time", "attempt-123", 
-            testEvent.getStartAt(), testEvent.getEndAt(), 15);
-
-        // Then - 메트릭 분석 호출 검증
-        ArgumentCaptor<Map<String, List<MetricDataPoint>>> metricsCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(metricAnalyzer).analyzeMissionPerformance(eq("attempt-123"), eq("user-123"), metricsCaptor.capture());
+        // Then - 새로운 평가 방식 메서드가 올바른 파라미터로 호출되었는지 검증
+        verify(geminiEvaluationService).evaluateCode(
+            eq(testEventWithEnhancedFields.getCode()),
+            eq(testEventWithEnhancedFields.getMissionType()),
+            eq(testEventWithEnhancedFields.getMissionId()),
+            eq(testEventWithEnhancedFields.getMissionObjective()),
+            eq(testEventWithEnhancedFields.getChecklist()),
+            eq(testEventWithEnhancedFields.getS3StorageUrl()),
+            eq(testEventWithEnhancedFields.getS3PreSignedUrl()),
+            eq(testEventWithEnhancedFields.getStatistics())
+        );
         
-        Map<String, List<MetricDataPoint>> capturedMetrics = metricsCaptor.getValue();
-        assertThat(capturedMetrics).containsKeys("cpu_usage", "memory_usage", "response_time");
-        assertThat(capturedMetrics.get("cpu_usage")).isEqualTo(cpuData);
-
-        // Then - 평가 완료 이벤트 발행 검증
-        ArgumentCaptor<EvaluationCompletedEvent> eventCaptor = ArgumentCaptor.forClass(EvaluationCompletedEvent.class);
-        verify(evaluationEventPublisher).publishEvaluationCompleted(eventCaptor.capture());
-        
-        EvaluationCompletedEvent publishedEvent = eventCaptor.getValue();
-        assertThat(publishedEvent.getMissionAttemptId()).isEqualTo("attempt-123");
-        assertThat(publishedEvent.getUserId()).isEqualTo("user-123");
-        assertThat(publishedEvent.getEvaluationStatus()).isEqualTo("COMPLETED");
-        assertThat(publishedEvent.getPerformanceGrade()).isEqualTo("GOOD");
-        assertThat(publishedEvent.getHasCpuIssues()).isFalse();
-        assertThat(publishedEvent.getHasMemoryIssues()).isFalse();
-        assertThat(publishedEvent.getProcessingTimeMs()).isNotNull();
+        // 평가 프로세스 완료 검증
+        verify(aiEvaluationRepository, times(3)).save(any(AIEvaluation.class)); // Initial, Processing, Completed
+        verify(evaluationSummaryRepository).save(any(EvaluationSummary.class));
+        verify(evaluationHistoryRepository, times(3)).save(any(EvaluationHistory.class));
+        verify(evaluationEventPublisher).publishEvaluationCompleted(any());
     }
 
     @Test
-    @DisplayName("Prometheus 메트릭 조회 실패 시에도 AI 평가는 정상 진행")
-    void processEvaluationAsync_PrometheusFailure_ContinueWithAIEvaluation() throws Exception {
+    @DisplayName("통계 정보가 포함된 evaluation.completed 이벤트 발행 검증")
+    void processEvaluationAsync_PublishEventWithStatistics_VerifyEventContent() throws Exception {
         // Given
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(geminiEvaluationService.evaluateCode(anyString(), anyString(), anyString())).thenReturn(testResult);
-        when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":85}");
-
-        // Prometheus 조회 실패 설정
-        when(prometheusClient.queryMissionMetrics(anyString(), anyString(), 
-            any(LocalDateTime.class), any(LocalDateTime.class), anyInt()))
-            .thenThrow(new RuntimeException("Prometheus connection failed"));
+        when(missionTempSaveService.getTempSave("attempt-123")).thenReturn(Optional.empty());
+        
+        when(geminiEvaluationService.evaluateCode(
+            anyString(), anyString(), anyString(), anyString(), any(), anyString(), anyString(), any()
+        )).thenReturn(testResult);
+        
+        when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":88}");
 
         // When
-        evaluationService.processEvaluationAsync(testEvent);
+        evaluationService.processEvaluationAsync(testEventWithEnhancedFields);
 
-        // Then - AI 평가는 정상 진행되어야 함
-        verify(geminiEvaluationService).evaluateCode(testEvent.getCode(), testEvent.getMissionType(), testEvent.getMissionId());
+        // Then - evaluation.completed 이벤트에 통계 정보가 정확히 포함되는지 검증
+        verify(evaluationEventPublisher).publishEvaluationCompleted(argThat(event -> {
+            // 기본 미션 정보 검증
+            assertEquals(testEventWithEnhancedFields.getMissionAttemptId(), event.getMissionAttemptId());
+            assertEquals(testEventWithEnhancedFields.getUserId(), event.getUserId());
+            assertEquals(testEventWithEnhancedFields.getMissionId(), event.getMissionId());
+            assertEquals("COMPLETED", event.getEvaluationStatus());
+            
+            // 통계 정보 검증
+            MissionCompletedEvent.SimpleStatistics stats = testEventWithEnhancedFields.getStatistics();
+            assertEquals(stats.getCommandSuccessCount(), event.getCommandSuccessCount());
+            assertEquals(stats.getCommandFailureCount(), event.getCommandFailureCount());
+            assertEquals(stats.getAverageCpuUsage(), event.getAverageCpuUsage());
+            assertEquals(stats.getMaxCpuUsage(), event.getMaxCpuUsage());
+            assertEquals(stats.getAverageMemoryUsage(), event.getAverageMemoryUsage());
+            assertEquals(stats.getMaxMemoryUsage(), event.getMaxMemoryUsage());
+            assertEquals(stats.getTotalExecutionTime(), event.getTotalExecutionTime());
+            
+            // 평가 결과 검증
+            assertEquals(testResult.getOverallScore(), event.getOverallScore());
+            
+            return true;
+        }));
+    }
+
+    @Test
+    @DisplayName("선택적 필드들이 null인 경우에도 정상 처리 (하위 호환성)")
+    void processEvaluationAsync_WithNullOptionalFields_BackwardCompatibility() throws Exception {
+        // Given - 기본 이벤트 (새 필드들이 null)
+        when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
+        when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
+        when(missionTempSaveService.getTempSave("attempt-123")).thenReturn(Optional.empty());
+        
+        // 정확한 파라미터로 매칭
+        when(geminiEvaluationService.evaluateCode(
+            eq(basicTestEvent.getCode()),
+            eq(basicTestEvent.getMissionType()),
+            eq(basicTestEvent.getMissionId()),
+            isNull(), isNull(), isNull(), isNull(), isNull()
+        )).thenReturn(testResult);
+        
+        when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":85}");
+
+        // When
+        evaluationService.processEvaluationAsync(basicTestEvent);
+
+        // Then - null 값들이 그대로 전달되는지 검증 (하위 호환성)
+        verify(geminiEvaluationService).evaluateCode(
+            eq(basicTestEvent.getCode()),
+            eq(basicTestEvent.getMissionType()),
+            eq(basicTestEvent.getMissionId()),
+            isNull(), // missionObjective
+            isNull(), // checklist
+            isNull(), // s3StorageUrl
+            isNull(), // s3PreSignedUrl
+            isNull()  // statistics
+        );
+        
+        // 평가는 정상적으로 완료되어야 함
+        verify(evaluationEventPublisher).publishEvaluationCompleted(any());
+    }
+
+    @Test
+    @DisplayName("임시 저장 데이터가 있는 경우 - 최종 완료 상태 업데이트")
+    void processEvaluationAsync_WithTempSaveData_UpdateFinalStatus() throws Exception {
+        // Given - 임시 저장 데이터가 존재하는 경우
+        when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
+        when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
+        when(missionTempSaveService.getTempSave("attempt-123")).thenReturn(Optional.of(mockTempSave));
+        
+        when(geminiEvaluationService.evaluateCode(
+            anyString(), anyString(), anyString(), anyString(), any(), anyString(), anyString(), any()
+        )).thenReturn(testResult);
+        
+        when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":88}");
+
+        // When
+        evaluationService.processEvaluationAsync(testEventWithEnhancedFields);
+
+        // Then - 임시 저장 서비스 호출 검증
+        verify(missionTempSaveService).getTempSave("attempt-123");
+        verify(missionTempSaveService).markAsCompleted("attempt-123");
+        
+        // 평가는 정상 완료
         verify(aiEvaluationRepository, times(3)).save(any(AIEvaluation.class));
-        
-        // Then - 메트릭 없이 이벤트 발행
-        ArgumentCaptor<EvaluationCompletedEvent> eventCaptor = ArgumentCaptor.forClass(EvaluationCompletedEvent.class);
-        verify(evaluationEventPublisher).publishEvaluationCompleted(eventCaptor.capture());
-        
-        EvaluationCompletedEvent publishedEvent = eventCaptor.getValue();
-        assertThat(publishedEvent.getEvaluationStatus()).isEqualTo("COMPLETED");
-        // 성능 분석 필드는 null 또는 기본값
-        assertThat(publishedEvent.getPerformanceGrade()).isNullOrEmpty();
+        verify(evaluationEventPublisher).publishEvaluationCompleted(any());
     }
 
     @Test
-    @DisplayName("시간 구간이 없는 이벤트 처리 - 메트릭 수집 건너뛰기")
-    void processEvaluationAsync_NoTimeRange_SkipMetricsCollection() throws Exception {
-        // Given - 시간 구간이 없는 이벤트
-        MissionCompletedEvent eventWithoutTime = createTestMissionCompletedEvent();
-        
-        when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
-        when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(geminiEvaluationService.evaluateCode(anyString(), anyString(), anyString())).thenReturn(testResult);
-        when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":85}");
+    @DisplayName("중복 평가 요청 방지 - 이미 평가가 존재하는 경우")
+    void processEvaluationAsync_DuplicateEvaluation_PreventDuplicateProcessing() {
+        // Given - 이미 평가가 존재하는 경우
+        when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(true);
 
         // When
-        evaluationService.processEvaluationAsync(eventWithoutTime);
+        evaluationService.processEvaluationAsync(testEventWithEnhancedFields);
 
-        // Then - Prometheus 조회 안함
-        verify(prometheusClient, never()).queryMissionMetrics(anyString(), anyString(), 
-            any(LocalDateTime.class), any(LocalDateTime.class), anyInt());
-        verify(metricAnalyzer, never()).analyzeMissionPerformance(anyString(), anyString(), any(Map.class));
-
-        // Then - AI 평가는 정상 진행
-        verify(geminiEvaluationService).evaluateCode(eventWithoutTime.getCode(), 
-            eventWithoutTime.getMissionType(), eventWithoutTime.getMissionId());
-        verify(evaluationEventPublisher).publishEvaluationCompleted(any(EvaluationCompletedEvent.class));
+        // Then - 중복 처리 방지 검증
+        verify(aiEvaluationRepository, never()).save(any(AIEvaluation.class));
+        verify(geminiEvaluationService, never()).evaluateCode(
+            anyString(), anyString(), anyString(), anyString(), any(), anyString(), anyString(), any());
+        verify(evaluationSummaryRepository, never()).save(any(EvaluationSummary.class));
+        verify(evaluationEventPublisher, never()).publishEvaluationCompleted(any());
     }
 
     @Test
-    @DisplayName("평가 실패 시 실패 이벤트 발행")
-    void processEvaluationAsync_EvaluationFailed_PublishFailedEvent() {
+    @DisplayName("Gemini API 호출 실패 시 - 적절한 실패 처리 및 이벤트 발행")
+    void processEvaluationAsync_GeminiApiFailed_HandleFailureGracefully() {
         // Given
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(geminiEvaluationService.evaluateCode(anyString(), anyString(), anyString()))
-            .thenThrow(new RuntimeException("AI evaluation failed"));
+        when(missionTempSaveService.getTempSave("attempt-123")).thenReturn(Optional.empty());
+        
+        when(geminiEvaluationService.evaluateCode(
+            anyString(), anyString(), anyString(), anyString(), any(), anyString(), anyString(), any()))
+            .thenThrow(new RuntimeException("Enhanced Gemini API evaluation failed"));
 
         // When
-        evaluationService.processEvaluationAsync(testEvent);
+        evaluationService.processEvaluationAsync(testEventWithEnhancedFields);
 
-        // Then - 실패 이벤트 발행 검증
+        // Then - 실패 상태로 저장 검증
+        verify(aiEvaluationRepository, times(3)).save(argThat(evaluation -> {
+            if (evaluation.getStatus() == AIEvaluation.EvaluationStatus.FAILED) {
+                assertNotNull(evaluation.getErrorMessage());
+                assertTrue(evaluation.getErrorMessage().contains("Enhanced Gemini API evaluation failed"));
+                return true;
+            }
+            return true;
+        }));
+        
+        // 실패 이벤트 발행 검증
         verify(evaluationEventPublisher).publishEvaluationFailed(
-            eq("attempt-123"), eq("user-123"), contains("AI evaluation failed"));
+            eq("attempt-123"), 
+            eq("user-123"), 
+            contains("Enhanced Gemini API evaluation failed"));
+            
+        // 성공 이벤트는 발행되지 않아야 함
+        verify(evaluationEventPublisher, never()).publishEvaluationCompleted(any());
     }
 
     @Test
-    @DisplayName("성능 이슈가 있는 경우 이벤트에 포함")
-    void processEvaluationAsync_WithPerformanceIssues_IncludeInEvent() throws Exception {
+    @DisplayName("JSON 직렬화 실패 시 - 적절한 오류 처리")
+    void processEvaluationAsync_JsonSerializationFailed_HandleError() throws Exception {
         // Given
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(geminiEvaluationService.evaluateCode(anyString(), anyString(), anyString())).thenReturn(testResult);
-        when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":85}");
-
-        // 메트릭 데이터 설정 (성능 이슈 있음)
-        when(prometheusClient.queryMissionMetrics(anyString(), anyString(), 
-            any(LocalDateTime.class), any(LocalDateTime.class), anyInt()))
-            .thenReturn(createHighCpuMetricData());
-
-        // 성능 이슈가 있는 분석 결과 모킹
-        MetricSummaryDto performanceSummaryWithIssues = createMetricSummaryWithIssues();
-        when(metricAnalyzer.analyzeMissionPerformance(anyString(), anyString(), any(Map.class)))
-            .thenReturn(performanceSummaryWithIssues);
+        when(missionTempSaveService.getTempSave("attempt-123")).thenReturn(Optional.empty());
+        
+        when(geminiEvaluationService.evaluateCode(
+            anyString(), anyString(), anyString(), anyString(), any(), anyString(), anyString(), any()))
+            .thenReturn(testResult);
+            
+        when(objectMapper.writeValueAsString(testResult))
+            .thenThrow(new RuntimeException("JSON serialization failed"));
 
         // When
-        evaluationService.processEvaluationAsync(testEvent);
+        evaluationService.processEvaluationAsync(testEventWithEnhancedFields);
 
-        // Then - 성능 이슈 정보가 포함된 이벤트 발행
-        ArgumentCaptor<EvaluationCompletedEvent> eventCaptor = ArgumentCaptor.forClass(EvaluationCompletedEvent.class);
-        verify(evaluationEventPublisher).publishEvaluationCompleted(eventCaptor.capture());
+        // Then - JSON 직렬화 실패로 인한 평가 실패 처리
+        verify(aiEvaluationRepository, times(3)).save(argThat(evaluation -> {
+            if (evaluation.getStatus() == AIEvaluation.EvaluationStatus.FAILED) {
+                assertNotNull(evaluation.getErrorMessage());
+                assertTrue(evaluation.getErrorMessage().contains("Failed to save evaluation result"));
+                return true;
+            }
+            return true;
+        }));
         
-        EvaluationCompletedEvent publishedEvent = eventCaptor.getValue();
-        assertThat(publishedEvent.getPerformanceGrade()).isEqualTo("POOR");
-        assertThat(publishedEvent.getHasCpuIssues()).isTrue();
-        assertThat(publishedEvent.getHasMemoryIssues()).isTrue();
-        assertThat(publishedEvent.getHasResponseTimeIssues()).isTrue();
-        assertThat(publishedEvent.getPerformanceSummary()).contains("CPU 사용률이 높습니다");
+        verify(evaluationEventPublisher).publishEvaluationFailed(
+            eq("attempt-123"), eq("user-123"), anyString());
     }
 
     // Helper methods for test data creation
-    private MissionCompletedEvent createTestMissionCompletedEventWithTimeRange() {
+    
+    private MissionCompletedEvent createEnhancedMissionCompletedEvent() {
         MissionCompletedEvent event = new MissionCompletedEvent();
         event.setEventType("MISSION_COMPLETED");
         event.setUserId("user-123");
         event.setMissionId("mission-456");
         event.setMissionAttemptId("attempt-123");
         event.setMissionType("Docker Container");
-        event.setCode("FROM ubuntu:20.04\nRUN apt-get update");
-        event.setMissionTitle("Docker 컨테이너 생성 실습");
+        event.setCode("FROM ubuntu:20.04\nRUN apt-get update\nEXPOSE 8080\nCMD [\"nginx\", \"-g\", \"daemon off;\"]");
+        event.setMissionTitle("고급 Docker 컨테이너 생성 실습");
         event.setCompletedAt(LocalDateTime.now());
-        event.setStartAt(LocalDateTime.now().minusHours(1)); // 1시간 전 시작
-        event.setEndAt(LocalDateTime.now()); // 현재 시간 종료
+        
+        // 새로운 향상된 필드들
+        event.setMissionObjective("Ubuntu 20.04 기반의 웹 서버 Docker 이미지를 생성하세요. 패키지를 업데이트하고, 8080 포트를 노출하며, nginx를 daemon 모드로 실행하도록 설정해야 합니다.");
+        event.setChecklist(List.of(
+            "Ubuntu 20.04 베이스 이미지 사용",
+            "apt-get update로 패키지 목록 업데이트",
+            "8080 포트를 외부로 노출",
+            "nginx를 daemon off 모드로 실행",
+            "적절한 Dockerfile 문법 준수",
+            "보안 모범 사례 적용"
+        ));
+        event.setS3StorageUrl("s3://devtrip-bucket/missions/mission-456/user-123/");
+        event.setS3PreSignedUrl("https://devtrip-bucket.s3.amazonaws.com/missions/mission-456/user-123/docker-files.tar.gz?AWSAccessKeyId=AKIAI44QH8DHBEXAMPLE&Expires=1618884000&Signature=example");
+        
+        // 상세한 통계 정보
+        MissionCompletedEvent.SimpleStatistics stats = new MissionCompletedEvent.SimpleStatistics();
+        stats.setCommandSuccessCount(12);
+        stats.setCommandFailureCount(3);
+        stats.setTopErrorMessages(List.of(
+            "docker: permission denied while trying to connect to the Docker daemon socket",
+            "Unable to locate package nginx-extras",
+            "Port 8080 is already in use by another process",
+            "Dockerfile syntax error: unknown instruction 'MAINTANER'",
+            "Failed to pull image ubuntu:20.04: network timeout"
+        ));
+        stats.setAverageCpuUsage(38.7);
+        stats.setMaxCpuUsage(82.5);
+        stats.setAverageMemoryUsage(756.3);
+        stats.setMaxMemoryUsage(1456.8);
+        stats.setTotalExecutionTime(25800L); // 25.8초
+        event.setStatistics(stats);
+        
         return event;
     }
-
-    private MissionCompletedEvent createTestMissionCompletedEvent() {
+    
+    private MissionCompletedEvent createBasicMissionCompletedEvent() {
         MissionCompletedEvent event = new MissionCompletedEvent();
         event.setEventType("MISSION_COMPLETED");
         event.setUserId("user-123");
@@ -250,9 +364,10 @@ class EnhancedEvaluationServiceTest {
         event.setMissionAttemptId("attempt-123");
         event.setMissionType("Docker Container");
         event.setCode("FROM ubuntu:20.04\nRUN apt-get update");
-        event.setMissionTitle("Docker 컨테이너 생성 실습");
+        event.setMissionTitle("기본 Docker 실습");
         event.setCompletedAt(LocalDateTime.now());
-        // startAt, endAt은 null
+        
+        // 새로운 필드들은 null (기본값)
         return event;
     }
 
@@ -269,68 +384,40 @@ class EnhancedEvaluationServiceTest {
 
     private EvaluationResultDTO createTestEvaluationResult() {
         EvaluationResultDTO result = new EvaluationResultDTO();
-        result.setOverallScore(85);
-        result.setFeedback("Overall good code quality");
+        result.setOverallScore(88);
+        result.setFeedback("향상된 평가 방식으로 분석한 결과, 전체적으로 우수한 Docker 컨테이너 구성입니다. 미션 목표를 충실히 달성했으며, 제공된 S3 자료와 통계 정보를 바탕으로 실제 실행 환경에서의 성능도 양호합니다.");
+        result.setDetailedAnalysis("체크리스트 달성도: 6/6 완료. 실행 통계 분석: 명령 성공률 80% (12/15), CPU 사용량 평균 38.7% (적정), 메모리 사용량 최대 1.4GB (허용 범위). 발생한 오류들은 학습 과정에서 자연스러운 시행착오로 판단됩니다.");
+
+        EvaluationResultDTO.CodeQualityScore codeQuality = new EvaluationResultDTO.CodeQualityScore();
+        codeQuality.setScore(90);
+        codeQuality.setFeedback("미션의 모든 요구사항을 정확히 구현했습니다. Dockerfile 구조가 논리적이고 최적화되어 있습니다.");
+        codeQuality.setSuggestions("멀티스테이지 빌드를 활용하면 이미지 크기를 더욱 줄일 수 있습니다.");
+        result.setCodeQuality(codeQuality);
+
+        EvaluationResultDTO.SecurityScore security = new EvaluationResultDTO.SecurityScore();
+        security.setScore(85);
+        security.setFeedback("기본적인 보안 설정이 적절히 적용되었습니다.");
+        security.setVulnerabilities("root 사용자로 실행되고 있어 권한 상승 위험이 있습니다.");
+        security.setRecommendations("전용 사용자 계정을 생성하고 USER 지시어를 사용하여 권한을 제한하세요.");
+        result.setSecurity(security);
+
+        EvaluationResultDTO.StyleScore style = new EvaluationResultDTO.StyleScore();
+        style.setScore(89);
+        style.setFeedback("Docker 모범 사례를 잘 따르고 있으며, 일관성 있는 스타일을 유지합니다.");
+        style.setStyleIssues("일부 명령어에서 불필요한 공백이 발견되었습니다.");
+        style.setImprovements("각 RUN 지시어 후 && 연결 시 일관된 들여쓰기를 사용하세요.");
+        result.setStyle(style);
+
         return result;
     }
-
-    private List<MetricDataPoint> createCpuMetricData() {
-        return Arrays.asList(
-            new MetricDataPoint(Instant.now().minusSeconds(60), 45.0),
-            new MetricDataPoint(Instant.now().minusSeconds(30), 50.0),
-            new MetricDataPoint(Instant.now(), 55.0)
-        );
-    }
-
-    private List<MetricDataPoint> createMemoryMetricData() {
-        return Arrays.asList(
-            new MetricDataPoint(Instant.now().minusSeconds(60), 70.0),
-            new MetricDataPoint(Instant.now().minusSeconds(30), 75.0),
-            new MetricDataPoint(Instant.now(), 80.0)
-        );
-    }
-
-    private List<MetricDataPoint> createResponseTimeMetricData() {
-        return Arrays.asList(
-            new MetricDataPoint(Instant.now().minusSeconds(60), 200.0),
-            new MetricDataPoint(Instant.now().minusSeconds(30), 250.0),
-            new MetricDataPoint(Instant.now(), 300.0)
-        );
-    }
-
-    private List<MetricDataPoint> createHighCpuMetricData() {
-        return Arrays.asList(
-            new MetricDataPoint(Instant.now().minusSeconds(60), 85.0), // 높은 CPU
-            new MetricDataPoint(Instant.now().minusSeconds(30), 90.0),
-            new MetricDataPoint(Instant.now(), 95.0)
-        );
-    }
-
-    private MetricSummaryDto createTestMetricSummary() {
-        return MetricSummaryDto.builder()
-            .missionAttemptId("attempt-123")
-            .userId("user-123")
-            .overallGrade(MetricSummaryDto.PerformanceGrade.GOOD)
-            .performanceSummary("전체적으로 안정적인 성능을 보입니다.")
-            .hasCpuIssues(false)
-            .hasMemoryIssues(false)
-            .hasResponseTimeIssues(false)
-            .hasHighVariability(false)
-            .metricResults(new HashMap<>())
-            .build();
-    }
-
-    private MetricSummaryDto createMetricSummaryWithIssues() {
-        return MetricSummaryDto.builder()
-            .missionAttemptId("attempt-123")
-            .userId("user-123")
-            .overallGrade(MetricSummaryDto.PerformanceGrade.POOR)
-            .performanceSummary("CPU 사용률이 높습니다. 메모리 사용률이 높습니다. 응답 시간이 지연되고 있습니다.")
-            .hasCpuIssues(true)
-            .hasMemoryIssues(true)
-            .hasResponseTimeIssues(true)
-            .hasHighVariability(true)
-            .metricResults(new HashMap<>())
-            .build();
+    
+    private MissionTempSave createMockTempSave() {
+        MissionTempSave tempSave = new MissionTempSave();
+        tempSave.setMissionAttemptId("attempt-123");
+        tempSave.setSaveCount(5);
+        tempSave.setIsFinalCompleted(false);
+        tempSave.setTempCode("FROM ubuntu:20.04\n# 임시 저장된 코드");
+        tempSave.setCreatedAt(LocalDateTime.now().minusMinutes(30));
+        return tempSave;
     }
 }

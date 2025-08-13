@@ -65,16 +65,25 @@ public class EvaluationCompletedEvent {
     @JsonProperty("processing_time_ms")
     private Long processingTimeMs; // 평가 소요 시간
     
-    // 성능 분석 요약
-    @JsonProperty("has_cpu_issues")
-    private Boolean hasCpuIssues;
+    // 간단한 통계 정보 (새로운 평가 방식)
+    @JsonProperty("command_success_count")
+    private Integer commandSuccessCount;
     
-    @JsonProperty("has_memory_issues")
-    private Boolean hasMemoryIssues;
+    @JsonProperty("command_failure_count")
+    private Integer commandFailureCount;
     
-    @JsonProperty("has_response_time_issues")
-    private Boolean hasResponseTimeIssues;
+    @JsonProperty("average_cpu_usage")
+    private Double averageCpuUsage;
     
-    @JsonProperty("performance_summary")
-    private String performanceSummary;
+    @JsonProperty("max_cpu_usage")
+    private Double maxCpuUsage;
+    
+    @JsonProperty("average_memory_usage")
+    private Double averageMemoryUsage;
+    
+    @JsonProperty("max_memory_usage")
+    private Double maxMemoryUsage;
+    
+    @JsonProperty("total_execution_time")
+    private Long totalExecutionTime;
 }

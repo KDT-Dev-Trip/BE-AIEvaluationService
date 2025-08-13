@@ -1,0 +1,110 @@
+{
+  "mission_attempt_id": "backend-service-123",
+  "execution_log": {
+    "commands": [
+      {
+        "timestamp": "2025-01-15T10:30:15Z",
+        "command": "docker build -t my-backend:v1.0 .",
+        "output": "Successfully built abc123def456\nSuccessfully tagged my-backend:v1.0",
+        "exit_code": 0,
+        "duration_ms": 45000
+      },
+      {
+        "timestamp": "2025-01-15T10:31:00Z",
+        "command": "docker run -d -p 8080:8080 --name backend-service my-backend:v1.0",
+        "output": "def456abc789",
+        "exit_code": 0,
+        "duration_ms": 2500
+      },
+      {
+        "timestamp": "2025-01-15T10:31:10Z",
+        "command": "curl http://localhost:8080/health",
+        "output": "{\"status\":\"UP\",\"timestamp\":\"2025-01-15T10:31:10Z\"}",
+        "exit_code": 0,
+        "duration_ms": 150
+      },
+      {
+        "timestamp": "2025-01-15T10:31:20Z",
+        "command": "curl -X POST http://localhost:8080/api/users -H 'Content-Type: application/json' -d '{\"name\":\"test\",\"email\":\"test@example.com\"}'",
+        "output": "{\"id\":1,\"name\":\"test\",\"email\":\"test@example.com\",\"createdAt\":\"2025-01-15T10:31:20Z\"}",
+        "exit_code": 0,
+        "duration_ms": 85
+      },
+      {
+        "timestamp": "2025-01-15T10:31:30Z",
+        "command": "curl http://localhost:8080/api/users",
+        "output": "[{\"id\":1,\"name\":\"test\",\"email\":\"test@example.com\",\"createdAt\":\"2025-01-15T10:31:20Z\"}]",
+        "exit_code": 0,
+        "duration_ms": 65
+      },
+      {
+        "timestamp": "2025-01-15T10:31:40Z",
+        "command": "docker logs backend-service",
+        "output": "2025-01-15 10:31:00.123  INFO 1 --- [           main] c.e.BackendApplication: Starting BackendApplication\n2025-01-15 10:31:02.456  INFO 1 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer: Tomcat started on port 8080\n2025-01-15 10:31:10.789  INFO 1 --- [nio-8080-exec-1] c.e.controller.HealthController: Health check requested\n2025-01-15 10:31:20.123  INFO 1 --- [nio-8080-exec-2] c.e.controller.UserController: Creating new user: test",
+        "exit_code": 0,
+        "duration_ms": 320
+      },
+      {
+        "timestamp": "2025-01-15T10:32:00Z",
+        "command": "docker stats backend-service --no-stream",
+        "output": "CONTAINER ID   NAME              CPU %     MEM USAGE / LIMIT     MEM %     NET I/O          BLOCK I/O   PIDS\ndef456abc789   backend-service   2.45%     256.7MiB / 2GiB       12.84%    1.2kB / 2.1kB   0B / 8.2kB  23",
+        "exit_code": 0,
+        "duration_ms": 1200
+      }
+    ],
+    "summary": {
+      "total_commands": 7,
+      "successful_commands": 7,
+      "failed_commands": 0,
+      "total_duration_ms": 49320
+    }
+  },
+  "resource_metrics": {
+    "collection_interval_seconds": 10,
+    "metrics": [
+      {
+        "timestamp": "2025-01-15T10:30:15Z",
+        "cpu_usage_percent": 45.2,
+        "memory_usage_mb": 128,
+        "network_rx_bytes": 1024,
+        "network_tx_bytes": 2048
+      },
+      {
+        "timestamp": "2025-01-15T10:30:25Z",
+        "cpu_usage_percent": 78.9,
+        "memory_usage_mb": 256,
+        "network_rx_bytes": 2048,
+        "network_tx_bytes": 4096
+      },
+      {
+        "timestamp": "2025-01-15T10:30:35Z",
+        "cpu_usage_percent": 12.4,
+        "memory_usage_mb": 257,
+        "network_rx_bytes": 3072,
+        "network_tx_bytes": 5120
+      },
+      {
+        "timestamp": "2025-01-15T10:31:10Z",
+        "cpu_usage_percent": 8.7,
+        "memory_usage_mb": 258,
+        "network_rx_bytes": 3200,
+        "network_tx_bytes": 5300
+      },
+      {
+        "timestamp": "2025-01-15T10:31:30Z",
+        "cpu_usage_percent": 15.3,
+        "memory_usage_mb": 260,
+        "network_rx_bytes": 3800,
+        "network_tx_bytes": 6200
+      }
+    ],
+    "summary": {
+      "avg_cpu_usage_percent": 32.1,
+      "max_cpu_usage_percent": 78.9,
+      "avg_memory_usage_mb": 231.8,
+      "max_memory_usage_mb": 260,
+      "total_network_rx_bytes": 13144,
+      "total_network_tx_bytes": 22764
+    }
+  }
+}

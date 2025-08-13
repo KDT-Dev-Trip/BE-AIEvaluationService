@@ -1,9 +1,5 @@
 package ac.su.kdt.beaievaluationservice.service;
 
-import ac.su.kdt.beaievaluationservice.analyzer.MetricAnalyzer;
-import ac.su.kdt.beaievaluationservice.analyzer.dto.MetricSummaryDto;
-import ac.su.kdt.beaievaluationservice.client.PrometheusClient;
-import ac.su.kdt.beaievaluationservice.client.dto.MetricDataPoint;
 import ac.su.kdt.beaievaluationservice.entity.AIEvaluation;
 import ac.su.kdt.beaievaluationservice.entity.EvaluationSummary;
 import ac.su.kdt.beaievaluationservice.entity.EvaluationHistory;
@@ -36,15 +32,21 @@ public class EvaluationService {
     private final EvaluationSummaryRepository evaluationSummaryRepository;
     private final EvaluationHistoryRepository evaluationHistoryRepository;
     private final GeminiEvaluationService geminiEvaluationService;
-    private final PrometheusClient prometheusClient;
-    private final MetricAnalyzer metricAnalyzer;
     private final EvaluationEventPublisher evaluationEventPublisher;
     private final ObjectMapper objectMapper;
     private final MissionTempSaveService missionTempSaveService;
     
-    @Async
     @Transactional
+    public void processEvaluationSync(MissionCompletedEvent event) {
+        processEvaluation(event);
+    }
+
+    @Async
     public void processEvaluationAsync(MissionCompletedEvent event) {
+        processEvaluation(event);
+    }
+
+    private void processEvaluation(MissionCompletedEvent event) {
         String missionAttemptId = event.getMissionAttemptId();
         LocalDateTime processingStartTime = LocalDateTime.now();
         
@@ -64,18 +66,26 @@ public class EvaluationService {
         try {
             updateEvaluationStatus(evaluation, AIEvaluation.EvaluationStatus.PROCESSING, "Starting AI evaluation");
             
-            // 1. Prometheus 메트릭 수집 (시간 구간이 있는 경우에만)
-            MetricSummaryDto performanceSummary = collectAndAnalyzeMetrics(event);
+            // 1. S3 저장소 주소와 Pre-Signed URL 준비
+            String s3StorageUrl = event.getS3StorageUrl();
+            String preSignedUrl = event.getS3PreSignedUrl();
             
-            // 2. AI 코드 평가 수행
+            log.info("Using S3 storage URL: {} and Pre-Signed URL for evaluation", s3StorageUrl);
+            
+            // 3. Pre-Signed URL과 S3 주소를 평가 모델(제미나이)에 전달해 데이터 직접 읽게 함
             EvaluationResultDTO result = geminiEvaluationService.evaluateCode(
                 event.getCode(), 
                 event.getMissionType(),
-                event.getMissionId()
+                event.getMissionId(),
+                event.getMissionObjective(),
+                event.getChecklist(),
+                s3StorageUrl,
+                preSignedUrl,
+                event.getStatistics()
             );
             
-            // 3. 평가 완료 처리 및 이벤트 발행
-            completeEvaluation(evaluation, result, event, performanceSummary, processingStartTime);
+            // 4. 모델 응답(점수/피드백)을 ai_evaluation 테이블에 저장하고 evaluation.completed 이벤트 발행
+            completeEvaluation(evaluation, result, event, processingStartTime);
             
         } catch (Exception e) {
             failEvaluationWithEvent(evaluation, event, e.getMessage());
@@ -112,7 +122,7 @@ public class EvaluationService {
         AIEvaluation evaluation = new AIEvaluation();
         evaluation.setMissionAttemptId(event.getMissionAttemptId());
         evaluation.setStatus(AIEvaluation.EvaluationStatus.PENDING);
-        evaluation.setAiModelVersion("gemini-1.5-pro");
+        evaluation.setAiModelVersion("gemini-2.0-flash-exp");
         
         // 임시 저장 데이터가 있다면 메타데이터 추가
         if (tempSaveData.isPresent()) {
@@ -139,8 +149,7 @@ public class EvaluationService {
     }
     
     private void completeEvaluation(AIEvaluation evaluation, EvaluationResultDTO result, 
-                                   MissionCompletedEvent event, MetricSummaryDto performanceSummary,
-                                   LocalDateTime processingStartTime) {
+                                   MissionCompletedEvent event, LocalDateTime processingStartTime) {
         try {
             String resultJson = objectMapper.writeValueAsString(result);
             evaluation.setEvaluationResult(resultJson);
@@ -152,7 +161,7 @@ public class EvaluationService {
                              AIEvaluation.EvaluationStatus.COMPLETED, "Evaluation completed successfully");
             
             // 평가 완료 이벤트 발행
-            publishEvaluationCompletedEvent(evaluation, result, event, performanceSummary, processingStartTime);
+            publishEvaluationCompletedEvent(evaluation, result, event, processingStartTime);
             
             log.info("Successfully completed evaluation for missionAttemptId: {}", evaluation.getMissionAttemptId());
             
@@ -190,91 +199,12 @@ public class EvaluationService {
         evaluationHistoryRepository.save(history);
     }
 
-    /**
-     * Prometheus에서 메트릭을 수집하고 성능 분석을 수행한다
-     * 시간 구간 정보가 없으면 메트릭 수집을 건너뛴다
-     */
-    private MetricSummaryDto collectAndAnalyzeMetrics(MissionCompletedEvent event) {
-        // 시간 구간이 없으면 메트릭 수집 건너뛰기
-        if (event.getStartAt() == null || event.getEndAt() == null) {
-            log.info("No time range provided for missionAttemptId: {}, skipping metrics collection", 
-                    event.getMissionAttemptId());
-            return null;
-        }
-
-        try {
-            log.info("Collecting Prometheus metrics for missionAttemptId: {} from {} to {}", 
-                    event.getMissionAttemptId(), event.getStartAt(), event.getEndAt());
-
-            Map<String, List<MetricDataPoint>> metricsData = new HashMap<>();
-            
-            // 주요 메트릭들을 병렬로 수집 (15초 간격)
-            int step = 15;
-            
-            // CPU 사용률 수집
-            try {
-                List<MetricDataPoint> cpuData = prometheusClient.queryMissionMetrics(
-                    "cpu_usage", event.getMissionAttemptId(), 
-                    event.getStartAt(), event.getEndAt(), step);
-                if (!cpuData.isEmpty()) {
-                    metricsData.put("cpu_usage", cpuData);
-                    log.debug("Collected {} CPU data points", cpuData.size());
-                }
-            } catch (Exception e) {
-                log.warn("Failed to collect CPU metrics: {}", e.getMessage());
-            }
-
-            // 메모리 사용률 수집
-            try {
-                List<MetricDataPoint> memoryData = prometheusClient.queryMissionMetrics(
-                    "memory_usage", event.getMissionAttemptId(), 
-                    event.getStartAt(), event.getEndAt(), step);
-                if (!memoryData.isEmpty()) {
-                    metricsData.put("memory_usage", memoryData);
-                    log.debug("Collected {} memory data points", memoryData.size());
-                }
-            } catch (Exception e) {
-                log.warn("Failed to collect memory metrics: {}", e.getMessage());
-            }
-
-            // 응답 시간 수집
-            try {
-                List<MetricDataPoint> responseTimeData = prometheusClient.queryMissionMetrics(
-                    "response_time", event.getMissionAttemptId(), 
-                    event.getStartAt(), event.getEndAt(), step);
-                if (!responseTimeData.isEmpty()) {
-                    metricsData.put("response_time", responseTimeData);
-                    log.debug("Collected {} response time data points", responseTimeData.size());
-                }
-            } catch (Exception e) {
-                log.warn("Failed to collect response time metrics: {}", e.getMessage());
-            }
-
-            // 메트릭이 수집되었으면 분석 수행
-            if (!metricsData.isEmpty()) {
-                MetricSummaryDto summary = metricAnalyzer.analyzeMissionPerformance(
-                    event.getMissionAttemptId(), event.getUserId(), metricsData);
-                log.info("Performance analysis completed for missionAttemptId: {}, grade: {}", 
-                        event.getMissionAttemptId(), summary.getOverallGrade());
-                return summary;
-            }
-
-            log.info("No metrics collected for missionAttemptId: {}", event.getMissionAttemptId());
-            return null;
-
-        } catch (Exception e) {
-            log.error("Failed to collect and analyze metrics for missionAttemptId: {}", 
-                     event.getMissionAttemptId(), e);
-            return null;
-        }
-    }
 
     /**
      * 평가 완료 이벤트를 Kafka로 발행한다
      */
     private void publishEvaluationCompletedEvent(AIEvaluation evaluation, EvaluationResultDTO result, 
-                                                MissionCompletedEvent event, MetricSummaryDto performanceSummary,
-                                                LocalDateTime processingStartTime) {
+                                                MissionCompletedEvent event, LocalDateTime processingStartTime) {
         try {
             long processingTimeMs = java.time.Duration.between(processingStartTime, LocalDateTime.now()).toMillis();
             
@@ -303,14 +233,17 @@ public class EvaluationService {
                 eventBuilder.styleScore(result.getStyle().getScore());
             }
 
-            // 성능 분석 결과가 있으면 포함
-            if (performanceSummary != null) {
+            // 통계 정보가 있으면 포함
+            if (event.getStatistics() != null) {
+                MissionCompletedEvent.SimpleStatistics stats = event.getStatistics();
                 eventBuilder
-                        .performanceGrade(performanceSummary.getOverallGrade().name())
-                        .hasCpuIssues(performanceSummary.isHasCpuIssues())
-                        .hasMemoryIssues(performanceSummary.isHasMemoryIssues())
-                        .hasResponseTimeIssues(performanceSummary.isHasResponseTimeIssues())
-                        .performanceSummary(performanceSummary.getPerformanceSummary());
+                        .commandSuccessCount(stats.getCommandSuccessCount())
+                        .commandFailureCount(stats.getCommandFailureCount())
+                        .averageCpuUsage(stats.getAverageCpuUsage())
+                        .maxCpuUsage(stats.getMaxCpuUsage())
+                        .averageMemoryUsage(stats.getAverageMemoryUsage())
+                        .maxMemoryUsage(stats.getMaxMemoryUsage())
+                        .totalExecutionTime(stats.getTotalExecutionTime());
             }
 
             EvaluationCompletedEvent completedEvent = eventBuilder.build();
@@ -354,4 +287,5 @@ public class EvaluationService {
         recordStatusChange(evaluation, AIEvaluation.EvaluationStatus.PROCESSING, 
                          AIEvaluation.EvaluationStatus.FAILED, errorMessage);
     }
+    
 }

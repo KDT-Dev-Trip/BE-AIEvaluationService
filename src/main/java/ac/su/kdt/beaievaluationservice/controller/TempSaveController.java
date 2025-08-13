@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
 @Tag(name = "임시 저장", description = "미션 진행 중 코드 임시 저장 관련 API")
 @Slf4j
 @RestController
-@RequestMapping("/api/v1/temp-save")
+@RequestMapping("/api/temp-save")
 @RequiredArgsConstructor
 public class TempSaveController {
 

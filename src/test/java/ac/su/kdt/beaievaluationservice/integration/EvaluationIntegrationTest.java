@@ -32,6 +32,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.awaitility.Awaitility.await;
+import org.junit.jupiter.api.Disabled;
 
 // AI 평가 시스템의 End-to-End 통합 테스트
 // 1. MissionCompletedEvent 수신
@@ -45,10 +46,11 @@ import static org.awaitility.Awaitility.await;
 @SpringBootTest
 @Transactional
 @TestPropertySource(properties = {
-    "gemini.api.key={GEMINI_API_KEY}",
+    "gemini.api.key=test-api-key",
     "gemini.api.url=https://test-gemini-api.com/generate" // 테스트용 URL
 })
 @DisplayName("AI 평가 시스템 End-to-End 통합 테스트")
+@Disabled("S3 통합 버전으로 업데이트 후 새로운 Enhanced 테스트로 대체됨")
 class EvaluationIntegrationTest {
 
     @Autowired
