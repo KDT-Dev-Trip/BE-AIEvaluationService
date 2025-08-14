@@ -5,12 +5,10 @@ import ac.su.kdt.beaievaluationservice.dto.response.ApiResponse;
 import ac.su.kdt.beaievaluationservice.dto.response.EvaluationResponse;
 import ac.su.kdt.beaievaluationservice.entity.AIEvaluation;
 import ac.su.kdt.beaievaluationservice.entity.EvaluationSummary;
-import ac.su.kdt.beaievaluationservice.entity.MissionTempSave;
 import ac.su.kdt.beaievaluationservice.kafka.event.MissionCompletedEvent;
 import ac.su.kdt.beaievaluationservice.repository.AIEvaluationRepository;
 import ac.su.kdt.beaievaluationservice.repository.EvaluationSummaryRepository;
 import ac.su.kdt.beaievaluationservice.service.EvaluationService;
-import ac.su.kdt.beaievaluationservice.service.MissionTempSaveService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
@@ -41,7 +39,6 @@ public class EvaluationController {
     private final EvaluationService evaluationService;
     private final AIEvaluationRepository aiEvaluationRepository;
     private final EvaluationSummaryRepository evaluationSummaryRepository;
-    private final MissionTempSaveService missionTempSaveService;
     private final ObjectMapper objectMapper;
 
     /**
@@ -89,8 +86,8 @@ public class EvaluationController {
             // Request를 Event로 변환
             MissionCompletedEvent event = convertToEvent(request);
             
-            // 비동기 평가 시작
-            evaluationService.processEvaluationAsync(event);
+            // 평가 시작 (동기 처리)
+            evaluationService.processEvaluation(event);
             
             // 즉시 응답 (평가는 비동기로 진행)
             EvaluationResponse response = EvaluationResponse.builder()
@@ -152,9 +149,6 @@ public class EvaluationController {
 
             AIEvaluation aiEvaluation = evaluation.get();
             EvaluationResponse response = convertToResponse(aiEvaluation);
-            
-            // 임시 저장 정보 추가
-            addTempSaveInfo(response, missionAttemptId);
             
             return ResponseEntity.ok(ApiResponse.success(response));
 
@@ -296,7 +290,7 @@ public class EvaluationController {
             MissionCompletedEvent event = convertToEvent(request);
             
             // 동기적으로 평가 실행
-            evaluationService.processEvaluationSync(event);
+            evaluationService.processEvaluation(event);
             
             // 결과 조회
             Optional<AIEvaluation> evaluation = aiEvaluationRepository.findByMissionAttemptId(request.getMissionAttemptId());
@@ -544,20 +538,4 @@ public class EvaluationController {
                 .build();
     }
 
-    private void addTempSaveInfo(EvaluationResponse response, String missionAttemptId) {
-        try {
-            Optional<MissionTempSave> tempSave = missionTempSaveService.getTempSave(missionAttemptId);
-            if (tempSave.isPresent()) {
-                response.setHadTempSave(true);
-                response.setTempSaveCount(tempSave.get().getSaveCount());
-            } else {
-                response.setHadTempSave(false);
-                response.setTempSaveCount(0);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to get temp save info for missionAttemptId: {}", missionAttemptId, e);
-            response.setHadTempSave(false);
-            response.setTempSaveCount(0);
-        }
-    }
 }

@@ -33,22 +33,33 @@ public class MissionCompletedEventConsumer {
             @Header(KafkaHeaders.OFFSET) long offset,
             Acknowledgment acknowledgment) {
         
-        log.info("Received mission completed event from topic: {}, partition: {}, offset: {}, missionAttemptId: {}", 
-                topic, partition, offset, event != null ? event.getMissionAttemptId() : "null");
+        log.info("=== KAFKA EVENT RECEIVED ===");
+        log.info("Topic: {}, Partition: {}, Offset: {}", topic, partition, offset);
+        log.info("MissionAttemptId: {}", event != null ? event.getMissionAttemptId() : "null");
+        log.info("UserId: {}, MissionId: {}", 
+                event != null ? event.getUserId() : "null", 
+                event != null ? event.getMissionId() : "null");
 
         try {
             if (isValidEvent(event)) {
-                evaluationService.processEvaluationAsync(event);
+                log.info("=== STARTING AI EVALUATION ===");
+                log.info("Processing evaluation for mission attempt: {}", event.getMissionAttemptId());
+                
+                evaluationService.processEvaluation(event);
                 acknowledgment.acknowledge();
-                log.info("Successfully processed mission completed event for missionAttemptId: {}", 
-                        event.getMissionAttemptId());
+                
+                log.info("=== EVALUATION COMPLETED SUCCESSFULLY ===");
+                log.info("Mission attempt {} evaluation finished and acknowledged", event.getMissionAttemptId());
             } else {
-                log.warn("Invalid mission completed event received: {}", event);
+                log.warn("=== INVALID EVENT RECEIVED ===");
+                log.warn("Event validation failed: {}", event);
                 acknowledgment.acknowledge();
             }
         } catch (Exception e) {
+            log.error("=== EVALUATION FAILED ===");
             log.error("Error processing mission completed event for missionAttemptId: {}", 
                     event != null ? event.getMissionAttemptId() : "null", e);
+            acknowledgment.acknowledge();
         }
     }
 

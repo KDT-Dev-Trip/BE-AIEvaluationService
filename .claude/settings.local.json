@@ -11,7 +11,9 @@
       "Bash(del /q srcmainjavaacsukdtbeaievaluationserviceclientdtoPrometheusQueryResponse.java)",
       "Bash(del /q srcmainjavaacsukdtbeaievaluationserviceclientdtoMetricDataPoint.java)",
       "Bash(find:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(del /q \"C:\\workspace\\devtrip\\BE-AI-evaluation-service\\src\\main\\java\\ac\\su\\kdt\\beaievaluationservice\\config\\AsyncConfig.java\")",
+      "Bash(taskkill:*)"
     ],
     "deny": []
   }

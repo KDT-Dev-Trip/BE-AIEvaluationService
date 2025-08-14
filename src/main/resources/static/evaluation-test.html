@@ -3,246 +3,644 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 평가 결과 조회 테스트</title>
+    <title>AI 평가 시스템 - 고급 대시보드</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: 'Arial', sans-serif;
-            max-width: 1200px;
-            margin: 0 auto;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
             padding: 20px;
-            background-color: #f5f5f5;
         }
-        .container {
-            background: white;
+
+        .dashboard {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
             padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #333;
             text-align: center;
-            margin-bottom: 30px;
         }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 0;
+            min-height: 800px;
+        }
+
+        .sidebar {
+            background: #f8f9fa;
+            padding: 30px;
+            border-right: 1px solid #e9ecef;
+        }
+
+        .control-panel {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+        }
+
+        .control-panel h3 {
+            color: #495057;
+            margin-bottom: 20px;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
         .input-group {
             margin-bottom: 20px;
         }
-        label {
+
+        .input-group label {
             display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-            color: #555;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #495057;
+            font-size: 0.9rem;
         }
-        input[type="text"] {
+
+        .input-group input, .input-group select {
             width: 100%;
-            padding: 12px;
-            border: 2px solid #ddd;
-            border-radius: 5px;
-            font-size: 16px;
-            box-sizing: border-box;
+            padding: 12px 15px;
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            font-size: 14px;
+            transition: all 0.3s;
         }
-        input[type="text"]:focus {
-            border-color: #007bff;
+
+        .input-group input:focus, .input-group select:focus {
             outline: none;
+            border-color: #4facfe;
+            box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
         }
-        .button-group {
-            display: flex;
-            gap: 10px;
-            margin: 20px 0;
-        }
-        button {
-            padding: 12px 24px;
+
+        .btn {
+            padding: 12px 20px;
             border: none;
-            border-radius: 5px;
-            font-size: 16px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
             cursor: pointer;
-            transition: background-color 0.3s;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            text-decoration: none;
+            margin-bottom: 10px;
         }
+
         .btn-primary {
-            background-color: #007bff;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
         }
+
         .btn-primary:hover {
-            background-color: #0056b3;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
         }
+
         .btn-success {
-            background-color: #28a745;
+            background: linear-gradient(135deg, #56ab2f 0%, #a8e6cf 100%);
             color: white;
         }
+
         .btn-success:hover {
-            background-color: #1e7e34;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(86, 171, 47, 0.3);
         }
-        .result {
-            margin-top: 30px;
-            padding: 20px;
-            border-radius: 5px;
-            border-left: 4px solid #007bff;
-            background-color: #f8f9fa;
+
+        .btn-info {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 8px 15px;
+            font-size: 12px;
         }
-        .result.success {
-            border-left-color: #28a745;
-            background-color: #d4edda;
+
+        .quick-tests {
+            display: grid;
+            gap: 8px;
         }
-        .result.error {
-            border-left-color: #dc3545;
-            background-color: #f8d7da;
+
+        .dashboard-content {
+            padding: 30px;
+            background: white;
         }
-        .result h3 {
-            margin-top: 0;
-            color: #333;
-        }
-        .score-grid {
+
+        .metrics-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin: 15px 0;
+            gap: 20px;
+            margin-bottom: 30px;
         }
-        .score-item {
+
+        .metric-card {
             background: white;
-            padding: 15px;
-            border-radius: 5px;
-            border: 1px solid #dee2e6;
+            border-radius: 15px;
+            padding: 25px;
             text-align: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+            border: 1px solid #e9ecef;
+            transition: all 0.3s;
         }
-        .score-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #007bff;
+
+        .metric-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 30px rgba(0,0,0,0.15);
         }
-        .score-label {
-            font-size: 14px;
-            color: #666;
-            margin-top: 5px;
+
+        .metric-card .icon {
+            font-size: 2.5rem;
+            margin-bottom: 15px;
+            display: block;
         }
-        .feedback {
+
+        .metric-card.score .icon { color: #4facfe; }
+        .metric-card.quality .icon { color: #56ab2f; }
+        .metric-card.security .icon { color: #ff6b6b; }
+        .metric-card.style .icon { color: #feca57; }
+
+        .metric-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+
+        .metric-label {
+            color: #6c757d;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .charts-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .chart-card {
             background: white;
-            padding: 15px;
-            border-radius: 5px;
-            border: 1px solid #dee2e6;
-            margin-top: 15px;
-            white-space: pre-wrap;
-            line-height: 1.6;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+            border: 1px solid #e9ecef;
         }
-        .loading {
-            text-align: center;
-            color: #666;
-            font-style: italic;
+
+        .chart-card h4 {
+            color: #495057;
+            margin-bottom: 20px;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
-        .json-view {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 5px;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            max-height: 400px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            border: 1px solid #dee2e6;
-        }
-        .quick-test {
-            background: #e7f3ff;
-            padding: 15px;
-            border-radius: 5px;
+
+        .canvas-container {
+            position: relative;
+            height: 300px;
             margin-bottom: 20px;
         }
-        .quick-test h3 {
-            margin-top: 0;
-            color: #0066cc;
+
+        .analysis-section {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
         }
-        .quick-buttons {
+
+        .analysis-section h4 {
+            color: #495057;
+            margin-bottom: 20px;
+            font-size: 1.2rem;
             display: flex;
+            align-items: center;
             gap: 10px;
-            flex-wrap: wrap;
         }
-        .btn-quick {
-            background-color: #17a2b8;
-            color: white;
-            padding: 8px 16px;
-            font-size: 14px;
+
+        .checklist-grid {
+            display: grid;
+            gap: 15px;
+            margin-bottom: 20px;
         }
-        .btn-quick:hover {
-            background-color: #138496;
+
+        .checklist-item {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border-left: 4px solid #e9ecef;
+        }
+
+        .checklist-item.completed {
+            border-left-color: #28a745;
+            background: #d4edda;
+        }
+
+        .checklist-item.partial {
+            border-left-color: #ffc107;
+            background: #fff3cd;
+        }
+
+        .progress-bar {
+            flex: 1;
+            height: 8px;
+            background: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4facfe, #00f2fe);
+            transition: width 0.5s ease;
+        }
+
+        .resource-meters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .resource-meter {
+            text-align: center;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .meter-circle {
+            position: relative;
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 15px;
+        }
+
+        .meter-circle svg {
+            width: 100%;
+            height: 100%;
+            transform: rotate(-90deg);
+        }
+
+        .meter-circle .circle-bg {
+            fill: none;
+            stroke: #e9ecef;
+            stroke-width: 8;
+        }
+
+        .meter-circle .circle-fill {
+            fill: none;
+            stroke-width: 8;
+            stroke-linecap: round;
+            transition: stroke-dasharray 0.8s ease;
+        }
+
+        .feedback-panel {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+        }
+
+        .feedback-content {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            padding: 60px;
+            color: #6c757d;
+        }
+
+        .loading .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e9ecef;
+            border-left: 4px solid #4facfe;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error-state {
+            text-align: center;
+            padding: 60px;
+            color: #dc3545;
+        }
+
+        .error-state .icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+            opacity: 0.7;
+        }
+
+        .command-analysis {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        .command-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            border-left: 4px solid #4facfe;
+        }
+
+        .command-card h5 {
+            color: #495057;
+            margin-bottom: 10px;
+            font-size: 1rem;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-completed { background: #d4edda; color: #155724; }
+        .status-processing { background: #fff3cd; color: #856404; }
+        .status-failed { background: #f8d7da; color: #721c24; }
+
+        .grade-badge {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1.2rem;
+            margin: 0 auto;
+        }
+
+        .grade-a { background: #28a745; color: white; }
+        .grade-b { background: #17a2b8; color: white; }
+        .grade-c { background: #ffc107; color: #212529; }
+        .grade-d { background: #fd7e14; color: white; }
+        .grade-f { background: #dc3545; color: white; }
+
+        .responsive-table {
+            overflow-x: auto;
+            margin: 20px 0;
+        }
+
+        .responsive-table table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        .responsive-table th,
+        .responsive-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .responsive-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        @media (max-width: 1200px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .charts-container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .metrics-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+            
+            .resource-meters {
+                grid-template-columns: 1fr 1fr;
+            }
+            
+            .command-analysis {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🤖 AI 평가 결과 조회 테스트</h1>
-        
-        <div class="quick-test">
-            <h3>빠른 테스트</h3>
-            <p>아래 버튼을 클릭하면 미리 정의된 값으로 테스트할 수 있습니다.</p>
-            <div class="quick-buttons">
-                <button class="btn-quick" onclick="setQuickTest('kubernetes-mission-123')">kubernetes-mission-123</button>
-                <button class="btn-quick" onclick="setQuickTest('docker-mission-456')">docker-mission-456</button>
-                <button class="btn-quick" onclick="setQuickTest('spring-mission-789')">spring-mission-789</button>
+    <div class="dashboard">
+        <div class="header">
+            <h1><i class="fas fa-robot"></i> AI 평가 시스템</h1>
+            <p>DevOps 미션 평가를 위한 고급 분석 대시보드</p>
+        </div>
+
+        <div class="main-content">
+            <div class="sidebar">
+                <div class="control-panel">
+                    <h3><i class="fas fa-cog"></i> 제어판</h3>
+                    
+                    <div class="input-group">
+                        <label for="missionAttemptId">미션 시도 ID</label>
+                        <input type="text" id="missionAttemptId" placeholder="예: kubernetes-mission-123" value="kubernetes-mission-123">
+                    </div>
+
+                    <div class="input-group">
+                        <label for="missionType">미션 유형</label>
+                        <select id="missionType">
+                            <option value="KUBERNETES">Kubernetes</option>
+                            <option value="DOCKER">Docker</option>
+                            <option value="SPRING">Spring Boot</option>
+                            <option value="MONITORING">Monitoring</option>
+                        </select>
+                    </div>
+
+                    <button class="btn btn-primary" onclick="getEvaluationResult()">
+                        <i class="fas fa-search"></i> 평가 결과 조회
+                    </button>
+                    
+                    <button class="btn btn-success" onclick="syncEvaluate()">
+                        <i class="fas fa-play"></i> 동기 평가 실행
+                    </button>
+                </div>
+
+                <div class="control-panel">
+                    <h3><i class="fas fa-lightning-bolt"></i> 빠른 테스트</h3>
+                    <div class="quick-tests">
+                        <button class="btn btn-info" onclick="setQuickTest('kubernetes-mission-123', 'KUBERNETES')">
+                            <i class="fab fa-kubernetes"></i> K8s 미션
+                        </button>
+                        <button class="btn btn-info" onclick="setQuickTest('docker-mission-456', 'DOCKER')">
+                            <i class="fab fa-docker"></i> Docker 미션
+                        </button>
+                        <button class="btn btn-info" onclick="setQuickTest('spring-mission-789', 'SPRING')">
+                            <i class="fas fa-leaf"></i> Spring 미션
+                        </button>
+                        <button class="btn btn-info" onclick="setQuickTest('monitoring-mission-999', 'MONITORING')">
+                            <i class="fas fa-chart-line"></i> 모니터링 미션
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="dashboard-content">
+                <div id="result">
+                    <div class="loading">
+                        <div>
+                            <i class="fas fa-info-circle" style="font-size: 3rem; color: #4facfe; margin-bottom: 15px;"></i>
+                            <h3 style="color: #495057; margin-bottom: 10px;">AI 평가 대시보드에 오신 것을 환영합니다!</h3>
+                            <p style="color: #6c757d;">미션 시도 ID를 입력하고 평가 결과를 조회하거나 새로운 평가를 실행해보세요.</p>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
-
-        <div class="input-group">
-            <label for="missionAttemptId">미션 시도 ID (Mission Attempt ID)</label>
-            <input type="text" id="missionAttemptId" placeholder="예: kubernetes-mission-123" value="kubernetes-mission-123">
-        </div>
-
-        <div class="button-group">
-            <button class="btn-primary" onclick="getEvaluationResult()">📋 평가 결과 조회</button>
-            <button class="btn-success" onclick="syncEvaluate()">⚡ 동기 평가 실행</button>
-        </div>
-
-        <div id="result"></div>
     </div>
 
     <script>
         const API_BASE_URL = 'http://localhost:8080/api/evaluation';
+        let currentData = null;
 
-        function setQuickTest(missionId) {
+        function setQuickTest(missionId, missionType) {
             document.getElementById('missionAttemptId').value = missionId;
+            document.getElementById('missionType').value = missionType;
         }
 
         async function getEvaluationResult() {
             const missionAttemptId = document.getElementById('missionAttemptId').value.trim();
             
             if (!missionAttemptId) {
-                showResult('오류', '미션 시도 ID를 입력해주세요.', 'error');
+                showError('미션 시도 ID를 입력해주세요.');
                 return;
             }
 
-            showResult('조회 중...', '평가 결과를 조회하고 있습니다.', 'loading');
+            showLoading('평가 결과를 조회하고 있습니다...');
 
             try {
                 const response = await fetch(`${API_BASE_URL}/${missionAttemptId}`);
                 const data = await response.json();
 
                 if (response.ok && data.success) {
-                    showEvaluationResult(data.data, '평가 결과 조회 성공');
+                    currentData = data.data;
+                    showDashboard(data.data, '평가 결과 조회 완료');
                 } else {
-                    showResult('조회 실패', data.message || '평가 결과를 찾을 수 없습니다.', 'error', data);
+                    showError(data.message || '평가 결과를 찾을 수 없습니다.');
                 }
             } catch (error) {
-                showResult('네트워크 오류', `서버와 통신 중 오류가 발생했습니다: ${error.message}`, 'error');
+                showError(`서버와 통신 중 오류가 발생했습니다: ${error.message}`);
             }
         }
 
         async function syncEvaluate() {
             const missionAttemptId = document.getElementById('missionAttemptId').value.trim();
+            const missionType = document.getElementById('missionType').value;
             
             if (!missionAttemptId) {
-                showResult('오류', '미션 시도 ID를 입력해주세요.', 'error');
+                showError('미션 시도 ID를 입력해주세요.');
                 return;
             }
 
-            showResult('평가 중...', '동기 방식으로 AI 평가를 실행하고 있습니다. 10-30초 소요됩니다.', 'loading');
+            showLoading('AI 평가를 실행하고 있습니다... (10-30초 소요)');
 
             try {
                 const requestBody = {
                     missionAttemptId: missionAttemptId,
                     userId: "test-user-001",
                     missionId: "test-mission",
-                    missionType: "KUBERNETES",
-                    missionTitle: "테스트 미션",
-                    missionObjective: "Kubernetes 배포 테스트",
-                    checklist: ["Pod 생성", "Service 설정", "Ingress 구성"],
-                    code: `
-apiVersion: apps/v1
+                    missionType: missionType,
+                    missionTitle: `테스트 ${missionType.toLowerCase()} 미션`,
+                    missionObjective: `${missionType} 배포 및 구성 테스트`,
+                    checklist: [
+                        "컨테이너 이미지 빌드",
+                        "서비스 배포 구성",
+                        "네트워킹 설정",
+                        "모니터링 구성",
+                        "보안 정책 적용"
+                    ],
+                    code: generateSampleCode(missionType),
+                    s3StorageUrl: `s3://test-bucket/missions/${missionAttemptId}`,
+                    s3PreSignedUrl: `https://s3.amazonaws.com/test-bucket/missions/${missionAttemptId}?signature=test`,
+                    statistics: generateSampleStatistics()
+                };
+
+                const response = await fetch(`${API_BASE_URL}/evaluate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    currentData = data.data;
+                    showDashboard(data.data, '동기 평가 완료');
+                } else {
+                    showError(data.message || '평가에 실패했습니다.');
+                }
+            } catch (error) {
+                showError(`서버와 통신 중 오류가 발생했습니다: ${error.message}`);
+            }
+        }
+
+        function generateSampleCode(missionType) {
+            const codeTemplates = {
+                'KUBERNETES': `apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: test-app
@@ -272,117 +670,437 @@ spec:
   ports:
   - port: 80
     targetPort: 80
-  type: ClusterIP
-                    `.trim(),
-                    s3StorageUrl: "s3://test-bucket/missions/" + missionAttemptId,
-                    s3PreSignedUrl: "https://s3.amazonaws.com/test-bucket/missions/" + missionAttemptId + "?signature=test",
-                    statistics: {
-                        executionTime: "2.5초",
-                        resourceUsage: "CPU: 0.1 vCPU, Memory: 256MB",
-                        successRate: "100%"
-                    }
-                };
-
-                const response = await fetch(`${API_BASE_URL}/evaluate`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(requestBody)
-                });
-
-                const data = await response.json();
-
-                if (response.ok && data.success) {
-                    showEvaluationResult(data.data, '동기 평가 완료');
-                } else {
-                    showResult('평가 실패', data.message || '평가에 실패했습니다.', 'error', data);
-                }
-            } catch (error) {
-                showResult('네트워크 오류', `서버와 통신 중 오류가 발생했습니다: ${error.message}`, 'error');
-            }
+  type: ClusterIP`,
+                'DOCKER': `FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+EXPOSE 3000
+CMD ["npm", "start"]`,
+                'SPRING': `@RestController
+@RequestMapping("/api")
+public class TestController {
+    
+    @GetMapping("/health")
+    public ResponseEntity<String> health() {
+        return ResponseEntity.ok("OK");
+    }
+    
+    @PostMapping("/data")
+    public ResponseEntity<Object> createData(@RequestBody Map<String, Object> data) {
+        return ResponseEntity.ok(data);
+    }
+}`,
+                'MONITORING': `version: '3.8'
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+  
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin`
+            };
+            
+            return codeTemplates[missionType] || codeTemplates['KUBERNETES'];
         }
 
-        function showEvaluationResult(data, title) {
-            let html = `
-                <div class="result success">
-                    <h3>${title}</h3>
-                    <p><strong>상태:</strong> ${data.status}</p>
-                    <p><strong>AI 모델:</strong> ${data.aiModelVersion || 'N/A'}</p>
-                    <p><strong>생성 시간:</strong> ${data.createdAt || 'N/A'}</p>
-            `;
+        function generateSampleStatistics() {
+            return {
+                commandSuccessCount: Math.floor(Math.random() * 20) + 15,
+                commandFailureCount: Math.floor(Math.random() * 5),
+                averageCpuUsage: Math.round((Math.random() * 50 + 10) * 100) / 100,
+                maxCpuUsage: Math.round((Math.random() * 80 + 20) * 100) / 100,
+                averageMemoryUsage: Math.round((Math.random() * 1000 + 200) * 100) / 100,
+                maxMemoryUsage: Math.round((Math.random() * 2000 + 500) * 100) / 100,
+                totalExecutionTime: Math.round((Math.random() * 300 + 60) * 1000),
+                topErrorMessages: ["Connection timeout", "Permission denied", "Resource not found"]
+            };
+        }
 
-            if (data.status === 'COMPLETED' && data.overallScore !== undefined) {
-                html += `
-                    <div class="score-grid">
-                        <div class="score-item">
-                            <div class="score-value">${data.overallScore || 0}점</div>
-                            <div class="score-label">전체 점수</div>
-                        </div>
-                        <div class="score-item">
-                            <div class="score-value">${data.codeQualityScore || 0}점</div>
-                            <div class="score-label">코드 품질</div>
-                        </div>
-                        <div class="score-item">
-                            <div class="score-value">${data.securityScore || 0}점</div>
-                            <div class="score-label">보안</div>
-                        </div>
-                        <div class="score-item">
-                            <div class="score-value">${data.styleScore || 0}점</div>
-                            <div class="score-label">스타일</div>
-                        </div>
-                    </div>
-                `;
-
-                if (data.feedback) {
-                    html += `
-                        <h4>📝 AI 피드백</h4>
-                        <div class="feedback">${data.feedback}</div>
-                    `;
-                }
-            } else if (data.status === 'PROCESSING') {
-                html += `<p style="color: #ffc107; font-weight: bold;">⏳ 평가가 진행 중입니다. 잠시 후 다시 조회해보세요.</p>`;
-            } else if (data.status === 'FAILED') {
-                html += `<p style="color: #dc3545; font-weight: bold;">❌ 평가에 실패했습니다.</p>`;
-                if (data.errorMessage) {
-                    html += `<p><strong>오류 메시지:</strong> ${data.errorMessage}</p>`;
-                }
+        function generateMockCommands() {
+            const commandTemplates = {
+                kubernetes: [
+                    { command: "kubectl apply -f deployment.yaml", explanation: "YAML 파일을 사용한 디플로이먼트 생성", assessment: "올바른 사용 ✅" },
+                    { command: "kubectl get pods --all-namespaces", explanation: "모든 네임스페이스의 파드 상태 확인", assessment: "모범 사례 ⭐" },
+                    { command: "kubectl expose deployment nginx --port=80 --type=LoadBalancer", explanation: "LoadBalancer 타입으로 서비스 노출", assessment: "효과적 사용 👍" },
+                    { command: "kubectl logs -f deployment/nginx", explanation: "실시간 로그 모니터링", assessment: "운영 친화적 🔍" }
+                ],
+                docker: [
+                    { command: "docker build -t myapp:latest .", explanation: "현재 디렉토리에서 Docker 이미지 빌드", assessment: "표준 사용법 ✅" },
+                    { command: "docker run -d -p 8080:80 nginx", explanation: "백그라운드로 컨테이너 실행 및 포트 매핑", assessment: "적절한 옵션 👍" },
+                    { command: "docker ps -a", explanation: "모든 컨테이너 상태 확인", assessment: "기본 점검 ⭐" },
+                    { command: "docker logs --tail 50 container-name", explanation: "최근 50줄 로그만 확인", assessment: "효율적 사용 🚀" }
+                ],
+                general: [
+                    { command: "systemctl status nginx", explanation: "서비스 상태 확인", assessment: "시스템 점검 ✅" },
+                    { command: "ps aux | grep java", explanation: "Java 프로세스 확인", assessment: "프로세스 모니터링 👍" },
+                    { command: "df -h", explanation: "디스크 사용량 확인", assessment: "리소스 관리 ⭐" }
+                ]
+            };
+            
+            // 랜덤하게 3-5개 명령어 선택
+            const missionType = document.getElementById('missionType').value.toLowerCase();
+            let commands = commandTemplates.kubernetes; // 기본값
+            
+            if (missionType === 'docker') {
+                commands = commandTemplates.docker;
+            } else if (missionType === 'spring' || missionType === 'monitoring') {
+                commands = [...commandTemplates.docker, ...commandTemplates.general];
             }
+            
+            // 3-5개 랜덤 선택
+            const numberOfCommands = Math.floor(Math.random() * 3) + 3;
+            const selectedCommands = [];
+            const shuffled = [...commands].sort(() => 0.5 - Math.random());
+            
+            for (let i = 0; i < Math.min(numberOfCommands, shuffled.length); i++) {
+                selectedCommands.push(shuffled[i]);
+            }
+            
+            return selectedCommands;
+        }
 
-            html += `
-                    <details style="margin-top: 20px;">
-                        <summary style="cursor: pointer; font-weight: bold;">🔍 전체 응답 데이터 보기</summary>
-                        <div class="json-view">${JSON.stringify(data, null, 2)}</div>
-                    </details>
+        function showLoading(message) {
+            document.getElementById('result').innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <div>
+                        <h3 style="color: #495057; margin-bottom: 10px;">처리 중...</h3>
+                        <p style="color: #6c757d;">${message}</p>
+                    </div>
                 </div>
             `;
-
-            document.getElementById('result').innerHTML = html;
         }
 
-        function showResult(title, message, type, data = null) {
-            let html = `
-                <div class="result ${type}">
-                    <h3>${title}</h3>
+        function showError(message) {
+            document.getElementById('result').innerHTML = `
+                <div class="error-state">
+                    <div class="icon">
+                        <i class="fas fa-exclamation-triangle"></i>
+                    </div>
+                    <h3 style="margin-bottom: 10px;">오류 발생</h3>
                     <p>${message}</p>
+                </div>
+            `;
+        }
+
+        function showDashboard(data, title) {
+            const overallScore = data.overallScore || 0;
+            const codeQualityScore = data.codeQualityScore || 0;
+            const securityScore = data.securityScore || 0;
+            const styleScore = data.styleScore || 0;
+            
+            // Mock data for enhanced visualization
+            const mockCoreCommands = {
+                kubectl_usage: { score: Math.floor(Math.random() * 5) + 1, details: "kubectl 명령어 사용이 적절합니다" },
+                docker_usage: { score: Math.floor(Math.random() * 5) + 1, details: "Docker 명령어 구문이 정확합니다" },
+                other_tools: { score: Math.floor(Math.random() * 5) + 1, details: "기타 도구들을 효과적으로 활용했습니다" }
+            };
+
+            const mockChecklist = [
+                { objective: "컨테이너 이미지 빌드", achievement_rate: Math.floor(Math.random() * 30) + 70 },
+                { objective: "서비스 배포 구성", achievement_rate: Math.floor(Math.random() * 40) + 60 },
+                { objective: "네트워킹 설정", achievement_rate: Math.floor(Math.random() * 50) + 50 },
+                { objective: "모니터링 구성", achievement_rate: Math.floor(Math.random() * 35) + 65 },
+                { objective: "보안 정책 적용", achievement_rate: Math.floor(Math.random() * 45) + 55 }
+            ];
+
+            const mockResourceMetrics = {
+                cpu_efficiency_score: Math.floor(Math.random() * 5) + 1,
+                memory_efficiency_score: Math.floor(Math.random() * 5) + 1,
+                network_efficiency_score: Math.floor(Math.random() * 5) + 1,
+                disk_io_score: Math.floor(Math.random() * 5) + 1,
+                overall_resource_grade: ['A', 'B', 'C', 'D', 'F'][Math.floor(Math.random() * 5)]
+            };
+
+            document.getElementById('result').innerHTML = `
+                <!-- Status Header -->
+                <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 20px; border-radius: 15px; margin-bottom: 30px; text-align: center;">
+                    <h2><i class="fas fa-check-circle"></i> ${title}</h2>
+                    <span class="status-badge ${data.status ? 'status-' + data.status.toLowerCase() : 'status-completed'}">${data.status || 'COMPLETED'}</span>
+                    <p style="margin-top: 10px; opacity: 0.9;">AI 모델: ${data.aiModelVersion || 'gemini-2.0-flash-exp'} | 생성 시간: ${data.createdAt || new Date().toLocaleString()}</p>
+                </div>
+
+                <!-- Metrics Grid -->
+                <div class="metrics-grid">
+                    <div class="metric-card score">
+                        <i class="fas fa-star icon"></i>
+                        <div class="metric-value">${overallScore}</div>
+                        <div class="metric-label">종합 점수</div>
+                    </div>
+                    <div class="metric-card quality">
+                        <i class="fas fa-code icon"></i>
+                        <div class="metric-value">${codeQualityScore}</div>
+                        <div class="metric-label">코드 품질</div>
+                    </div>
+                    <div class="metric-card security">
+                        <i class="fas fa-shield-alt icon"></i>
+                        <div class="metric-value">${securityScore}</div>
+                        <div class="metric-label">보안 점수</div>
+                    </div>
+                    <div class="metric-card style">
+                        <i class="fas fa-paint-brush icon"></i>
+                        <div class="metric-value">${styleScore}</div>
+                        <div class="metric-label">스타일 점수</div>
+                    </div>
+                </div>
+
+                <!-- Charts Container -->
+                <div class="charts-container">
+                    <div class="chart-card">
+                        <h4><i class="fas fa-chart-pie"></i> 점수 분포</h4>
+                        <div class="canvas-container">
+                            <canvas id="scoreChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <h4><i class="fas fa-chart-bar"></i> 핵심 명령어 분석</h4>
+                        <div class="canvas-container">
+                            <canvas id="commandChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Checklist Analysis -->
+                <div class="analysis-section">
+                    <h4><i class="fas fa-tasks"></i> 미션 목표 달성률</h4>
+                    <div class="checklist-grid">
+                        ${mockChecklist.map(item => `
+                            <div class="checklist-item ${item.achievement_rate >= 80 ? 'completed' : item.achievement_rate >= 60 ? 'partial' : ''}">
+                                <div style="min-width: 200px;">
+                                    <strong>${item.objective}</strong>
+                                    <div style="font-size: 0.9rem; color: #6c757d; margin-top: 5px;">${item.achievement_rate}% 달성</div>
+                                </div>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: ${item.achievement_rate}%"></div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <!-- Core Commands Analysis -->
+                <div class="analysis-section">
+                    <h4><i class="fas fa-terminal"></i> 핵심 명령어 사용 분석</h4>
+                    
+                    <!-- 실제 사용된 명령어들 -->
+                    <div style="margin-bottom: 30px;">
+                        <h5 style="color: #495057; margin-bottom: 15px;"><i class="fas fa-code"></i> 사용된 핵심 명령어들</h5>
+                        <div class="command-list" style="background: #f8f9fa; border-radius: 10px; padding: 20px;">
+                            ${generateMockCommands().map(cmd => `
+                                <div style="margin-bottom: 20px; padding: 15px; background: white; border-radius: 8px; border-left: 4px solid #4facfe;">
+                                    <div style="font-family: 'Courier New', monospace; font-weight: bold; color: #2c3e50; margin-bottom: 8px;">
+                                        <i class="fas fa-chevron-right" style="color: #4facfe; margin-right: 8px;"></i>${cmd.command}
+                                    </div>
+                                    <div style="color: #6c757d; font-size: 0.9rem; margin-bottom: 5px;">
+                                        <strong>설명:</strong> ${cmd.explanation}
+                                    </div>
+                                    <div style="color: #28a745; font-size: 0.9rem; font-weight: 600;">
+                                        <strong>평가:</strong> ${cmd.assessment}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <!-- 도구별 숙련도 -->
+                    <div class="command-analysis">
+                        <div class="command-card">
+                            <h5><i class="fab fa-kubernetes"></i> kubectl 사용</h5>
+                            <p><strong>숙련도:</strong> ${mockCoreCommands.kubectl_usage.score}/5</p>
+                            <p>${mockCoreCommands.kubectl_usage.details}</p>
+                        </div>
+                        <div class="command-card">
+                            <h5><i class="fab fa-docker"></i> Docker 사용</h5>
+                            <p><strong>숙련도:</strong> ${mockCoreCommands.docker_usage.score}/5</p>
+                            <p>${mockCoreCommands.docker_usage.details}</p>
+                        </div>
+                        <div class="command-card">
+                            <h5><i class="fas fa-tools"></i> 기타 도구</h5>
+                            <p><strong>숙련도:</strong> ${mockCoreCommands.other_tools.score}/5</p>
+                            <p>${mockCoreCommands.other_tools.details}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Resource Metrics -->
+                <div class="analysis-section">
+                    <h4><i class="fas fa-server"></i> 시스템 리소스 효율성</h4>
+                    <div style="text-align: center; margin-bottom: 20px;">
+                        <h3>종합 등급</h3>
+                        <div class="grade-badge grade-${mockResourceMetrics.overall_resource_grade.toLowerCase()}">
+                            ${mockResourceMetrics.overall_resource_grade}
+                        </div>
+                    </div>
+                    <div class="resource-meters">
+                        <div class="resource-meter">
+                            <div class="meter-circle">
+                                <svg viewBox="0 0 100 100">
+                                    <circle class="circle-bg" cx="50" cy="50" r="40"></circle>
+                                    <circle class="circle-fill" cx="50" cy="50" r="40" 
+                                            style="stroke: #4facfe; stroke-dasharray: ${mockResourceMetrics.cpu_efficiency_score * 50}, 251;"
+                                            stroke-dashoffset="0"></circle>
+                                </svg>
+                                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-weight: bold;">
+                                    ${mockResourceMetrics.cpu_efficiency_score}/5
+                                </div>
+                            </div>
+                            <div><strong>CPU 효율성</strong></div>
+                        </div>
+                        <div class="resource-meter">
+                            <div class="meter-circle">
+                                <svg viewBox="0 0 100 100">
+                                    <circle class="circle-bg" cx="50" cy="50" r="40"></circle>
+                                    <circle class="circle-fill" cx="50" cy="50" r="40" 
+                                            style="stroke: #56ab2f; stroke-dasharray: ${mockResourceMetrics.memory_efficiency_score * 50}, 251;"
+                                            stroke-dashoffset="0"></circle>
+                                </svg>
+                                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-weight: bold;">
+                                    ${mockResourceMetrics.memory_efficiency_score}/5
+                                </div>
+                            </div>
+                            <div><strong>메모리 효율성</strong></div>
+                        </div>
+                        <div class="resource-meter">
+                            <div class="meter-circle">
+                                <svg viewBox="0 0 100 100">
+                                    <circle class="circle-bg" cx="50" cy="50" r="40"></circle>
+                                    <circle class="circle-fill" cx="50" cy="50" r="40" 
+                                            style="stroke: #feca57; stroke-dasharray: ${mockResourceMetrics.network_efficiency_score * 50}, 251;"
+                                            stroke-dashoffset="0"></circle>
+                                </svg>
+                                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-weight: bold;">
+                                    ${mockResourceMetrics.network_efficiency_score}/5
+                                </div>
+                            </div>
+                            <div><strong>네트워크 효율성</strong></div>
+                        </div>
+                        <div class="resource-meter">
+                            <div class="meter-circle">
+                                <svg viewBox="0 0 100 100">
+                                    <circle class="circle-bg" cx="50" cy="50" r="40"></circle>
+                                    <circle class="circle-fill" cx="50" cy="50" r="40" 
+                                            style="stroke: #ff6b6b; stroke-dasharray: ${mockResourceMetrics.disk_io_score * 50}, 251;"
+                                            stroke-dashoffset="0"></circle>
+                                </svg>
+                                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-weight: bold;">
+                                    ${mockResourceMetrics.disk_io_score}/5
+                                </div>
+                            </div>
+                            <div><strong>디스크 I/O 효율성</strong></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AI Feedback -->
+                ${data.feedback ? `
+                    <div class="feedback-panel">
+                        <h4><i class="fas fa-robot"></i> AI 피드백</h4>
+                        <div class="feedback-content">${data.feedback}</div>
+                    </div>
+                ` : ''}
+
+                <!-- Raw Data -->
+                <details style="margin-top: 30px;">
+                    <summary style="cursor: pointer; font-weight: bold; padding: 15px; background: #f8f9fa; border-radius: 10px;">
+                        <i class="fas fa-code"></i> 전체 응답 데이터 보기
+                    </summary>
+                    <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; margin-top: 10px; font-family: 'Courier New', monospace; font-size: 12px; max-height: 400px; overflow-y: auto; white-space: pre-wrap;">
+                        ${JSON.stringify(data, null, 2)}
+                    </div>
+                </details>
             `;
 
-            if (data) {
-                html += `
-                    <details style="margin-top: 15px;">
-                        <summary style="cursor: pointer; font-weight: bold;">🔍 서버 응답 보기</summary>
-                        <div class="json-view">${JSON.stringify(data, null, 2)}</div>
-                    </details>
-                `;
-            }
-
-            html += `</div>`;
-            document.getElementById('result').innerHTML = html;
+            // Create charts after DOM is updated
+            setTimeout(() => {
+                createScoreChart(overallScore, codeQualityScore, securityScore, styleScore);
+                createCommandChart(mockCoreCommands);
+            }, 100);
         }
 
-        // 페이지 로드 시 기본값으로 한 번 조회
+        function createScoreChart(overall, quality, security, style) {
+            const ctx = document.getElementById('scoreChart');
+            if (!ctx) return;
+
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['코드 품질', '보안', '스타일', '기타'],
+                    datasets: [{
+                        data: [quality, security, style, Math.max(0, overall - quality - security - style)],
+                        backgroundColor: [
+                            '#56ab2f',
+                            '#ff6b6b', 
+                            '#feca57',
+                            '#e9ecef'
+                        ],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        function createCommandChart(commands) {
+            const ctx = document.getElementById('commandChart');
+            if (!ctx) return;
+
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['kubectl', 'Docker', '기타 도구'],
+                    datasets: [{
+                        label: '숙련도 (5점 만점)',
+                        data: [commands.kubectl_usage.score, commands.docker_usage.score, commands.other_tools.score],
+                        backgroundColor: [
+                            '#4facfe',
+                            '#00f2fe',
+                            '#667eea'
+                        ],
+                        borderRadius: 8,
+                        borderSkipped: false,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 5,
+                            ticks: {
+                                stepSize: 1
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+        }
+
+        // Initialize dashboard
         window.addEventListener('load', function() {
-            // 자동 조회하지 않음 - 사용자가 버튼을 클릭해야 함
+            console.log('AI 평가 대시보드가 로드되었습니다.');
         });
     </script>
 </body>

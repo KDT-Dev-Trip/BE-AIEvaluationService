@@ -3,7 +3,6 @@ package ac.su.kdt.beaievaluationservice.service;
 import ac.su.kdt.beaievaluationservice.entity.AIEvaluation;
 import ac.su.kdt.beaievaluationservice.entity.EvaluationSummary;
 import ac.su.kdt.beaievaluationservice.entity.EvaluationHistory;
-import ac.su.kdt.beaievaluationservice.entity.MissionTempSave;
 import ac.su.kdt.beaievaluationservice.kafka.event.EvaluationCompletedEvent;
 import ac.su.kdt.beaievaluationservice.kafka.event.MissionCompletedEvent;
 import ac.su.kdt.beaievaluationservice.kafka.publisher.EvaluationEventPublisher;
@@ -14,7 +13,6 @@ import ac.su.kdt.beaievaluationservice.dto.EvaluationResultDTO;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,45 +32,46 @@ public class EvaluationService {
     private final GeminiEvaluationService geminiEvaluationService;
     private final EvaluationEventPublisher evaluationEventPublisher;
     private final ObjectMapper objectMapper;
-    private final MissionTempSaveService missionTempSaveService;
     
     @Transactional
-    public void processEvaluationSync(MissionCompletedEvent event) {
-        processEvaluation(event);
-    }
-
-    @Async
-    public void processEvaluationAsync(MissionCompletedEvent event) {
-        processEvaluation(event);
-    }
-
-    private void processEvaluation(MissionCompletedEvent event) {
+    public void processEvaluation(MissionCompletedEvent event) {
         String missionAttemptId = event.getMissionAttemptId();
         LocalDateTime processingStartTime = LocalDateTime.now();
         
+        log.info("=== AI EVALUATION PROCESS STARTED ===");
+        log.info("MissionAttemptId: {}", missionAttemptId);
+        log.info("UserId: {}, MissionId: {}", event.getUserId(), event.getMissionId());
+        log.info("MissionType: {}, MissionTitle: {}", event.getMissionType(), event.getMissionTitle());
+        log.info("Processing started at: {}", processingStartTime);
+        
         if (aiEvaluationRepository.existsByMissionAttemptId(missionAttemptId)) {
+            log.warn("=== DUPLICATE EVALUATION DETECTED ===");
             log.warn("Evaluation already exists for missionAttemptId: {}", missionAttemptId);
             return;
         }
 
-        // 임시 저장 데이터 확인 및 최종 완료 상태 업데이트
-        Optional<MissionTempSave> tempSaveData = checkAndUpdateTempSave(missionAttemptId);
-        
-        AIEvaluation evaluation = createInitialEvaluation(event, tempSaveData);
+        AIEvaluation evaluation = createInitialEvaluation(event);
         evaluation = aiEvaluationRepository.save(evaluation);
         
         recordStatusChange(evaluation, null, AIEvaluation.EvaluationStatus.PENDING, "Initial evaluation request");
         
         try {
+            log.info("=== EVALUATION STATUS: PROCESSING ===");
             updateEvaluationStatus(evaluation, AIEvaluation.EvaluationStatus.PROCESSING, "Starting AI evaluation");
             
-            // 1. S3 저장소 주소와 Pre-Signed URL 준비
+            // S3 데이터 준비
             String s3StorageUrl = event.getS3StorageUrl();
             String preSignedUrl = event.getS3PreSignedUrl();
             
-            log.info("Using S3 storage URL: {} and Pre-Signed URL for evaluation", s3StorageUrl);
+            log.info("=== S3 DATA PREPARATION ===");
+            log.info("S3 Storage URL: {}", s3StorageUrl);
+            log.info("Pre-Signed URL available: {}", preSignedUrl != null && !preSignedUrl.isEmpty());
             
-            // 3. Pre-Signed URL과 S3 주소를 평가 모델(제미나이)에 전달해 데이터 직접 읽게 함
+            // AI 평가 수행
+            log.info("=== CALLING GEMINI AI EVALUATION ===");
+            log.info("Code length: {} characters", event.getCode() != null ? event.getCode().length() : 0);
+            log.info("Statistics available: {}", event.getStatistics() != null);
+            
             EvaluationResultDTO result = geminiEvaluationService.evaluateCode(
                 event.getCode(), 
                 event.getMissionType(),
@@ -84,56 +83,27 @@ public class EvaluationService {
                 event.getStatistics()
             );
             
-            // 4. 모델 응답(점수/피드백)을 ai_evaluation 테이블에 저장하고 evaluation.completed 이벤트 발행
+            log.info("=== AI EVALUATION COMPLETED ===");
+            log.info("Overall Score: {}", result.getOverallScore());
+            
+            // 결과 저장 및 이벤트 발행
             completeEvaluation(evaluation, result, event, processingStartTime);
             
         } catch (Exception e) {
-            failEvaluationWithEvent(evaluation, event, e.getMessage());
+            log.error("=== EVALUATION ERROR ===");
             log.error("Failed to process evaluation for missionAttemptId: {}", missionAttemptId, e);
+            failEvaluationWithEvent(evaluation, event, e.getMessage());
         }
     }
     
     /**
-     * 임시 저장 데이터 확인 및 최종 완료 상태 업데이트
+     * 초기 평가 객체 생성
      */
-    private Optional<MissionTempSave> checkAndUpdateTempSave(String missionAttemptId) {
-        Optional<MissionTempSave> tempSaveData = missionTempSaveService.getTempSave(missionAttemptId);
-        
-        if (tempSaveData.isPresent()) {
-            MissionTempSave tempSave = tempSaveData.get();
-            log.info("Found temp save data for missionAttemptId: {}, saveCount: {}, tempCodeLength: {}", 
-                    missionAttemptId, tempSave.getSaveCount(), 
-                    tempSave.getTempCode() != null ? tempSave.getTempCode().length() : 0);
-            
-            // 임시 저장 데이터를 최종 완료 상태로 업데이트
-            missionTempSaveService.markAsCompleted(missionAttemptId);
-            
-            return tempSaveData;
-        } else {
-            log.info("No temp save data found for missionAttemptId: {}", missionAttemptId);
-            return Optional.empty();
-        }
-    }
-
-    /**
-     * 임시 저장 데이터를 고려한 초기 평가 생성
-     */
-    private AIEvaluation createInitialEvaluation(MissionCompletedEvent event, Optional<MissionTempSave> tempSaveData) {
+    private AIEvaluation createInitialEvaluation(MissionCompletedEvent event) {
         AIEvaluation evaluation = new AIEvaluation();
         evaluation.setMissionAttemptId(event.getMissionAttemptId());
         evaluation.setStatus(AIEvaluation.EvaluationStatus.PENDING);
         evaluation.setAiModelVersion("gemini-2.0-flash-exp");
-        
-        // 임시 저장 데이터가 있다면 메타데이터 추가
-        if (tempSaveData.isPresent()) {
-            MissionTempSave tempSave = tempSaveData.get();
-            // 임시 저장 횟수와 최종 완료 정보를 메타데이터로 기록
-            String metadata = String.format("tempSaveCount:%d,finalCompleted:%s", 
-                    tempSave.getSaveCount(), tempSave.getIsFinalCompleted());
-            // 메타데이터를 evaluation에 저장할 수 있는 필드가 있다면 저장
-            // 현재 스키마에는 없으므로 로그로만 기록
-            log.info("Evaluation includes temp save metadata: {}", metadata);
-        }
         
         return evaluation;
     }
@@ -151,21 +121,30 @@ public class EvaluationService {
     private void completeEvaluation(AIEvaluation evaluation, EvaluationResultDTO result, 
                                    MissionCompletedEvent event, LocalDateTime processingStartTime) {
         try {
+            log.info("=== SAVING EVALUATION RESULT ===");
             String resultJson = objectMapper.writeValueAsString(result);
             evaluation.setEvaluationResult(resultJson);
             evaluation.setStatus(AIEvaluation.EvaluationStatus.COMPLETED);
             aiEvaluationRepository.save(evaluation);
             
+            log.info("=== CREATING EVALUATION SUMMARY ===");
             createEvaluationSummary(evaluation, result, event);
             recordStatusChange(evaluation, AIEvaluation.EvaluationStatus.PROCESSING, 
                              AIEvaluation.EvaluationStatus.COMPLETED, "Evaluation completed successfully");
             
             // 평가 완료 이벤트 발행
+            log.info("=== PUBLISHING EVALUATION COMPLETED EVENT ===");
             publishEvaluationCompletedEvent(evaluation, result, event, processingStartTime);
             
-            log.info("Successfully completed evaluation for missionAttemptId: {}", evaluation.getMissionAttemptId());
+            long processingTimeMs = java.time.Duration.between(processingStartTime, LocalDateTime.now()).toMillis();
+            log.info("=== EVALUATION PROCESS COMPLETED ===");
+            log.info("MissionAttemptId: {}", evaluation.getMissionAttemptId());
+            log.info("Total processing time: {} ms", processingTimeMs);
+            log.info("Final score: {}", result.getOverallScore());
             
         } catch (Exception e) {
+            log.error("=== SAVE RESULT ERROR ===");
+            log.error("Failed to save evaluation result for {}: {}", evaluation.getMissionAttemptId(), e.getMessage());
             failEvaluationWithEvent(evaluation, event, "Failed to save evaluation result: " + e.getMessage());
         }
     }
@@ -247,11 +226,18 @@ public class EvaluationService {
             }
 
             EvaluationCompletedEvent completedEvent = eventBuilder.build();
+            
+            log.info("=== KAFKA EVENT PUBLISHING ===");
+            log.info("Publishing evaluation.completed event for missionAttemptId: {}", event.getMissionAttemptId());
+            log.info("Event contains: overallScore={}, processingTime={}ms", result.getOverallScore(), processingTimeMs);
+            
             evaluationEventPublisher.publishEvaluationCompleted(completedEvent);
 
-            log.info("Published evaluation completed event for missionAttemptId: {}", event.getMissionAttemptId());
+            log.info("=== KAFKA EVENT PUBLISHED SUCCESSFULLY ===");
+            log.info("Evaluation completed event published for missionAttemptId: {}", event.getMissionAttemptId());
 
         } catch (Exception e) {
+            log.error("=== KAFKA PUBLISH ERROR ===");
             log.error("Failed to publish evaluation completed event for missionAttemptId: {}", 
                      event.getMissionAttemptId(), e);
             // 이벤트 발행 실패는 전체 평가를 실패시키지 않음

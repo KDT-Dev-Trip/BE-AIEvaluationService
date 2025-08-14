@@ -2,11 +2,9 @@ package ac.su.kdt.beaievaluationservice.controller;
 
 import ac.su.kdt.beaievaluationservice.dto.response.ApiResponse;
 import ac.su.kdt.beaievaluationservice.entity.AIEvaluation;
-import ac.su.kdt.beaievaluationservice.entity.MissionTempSave;
 import ac.su.kdt.beaievaluationservice.repository.AIEvaluationRepository;
 import ac.su.kdt.beaievaluationservice.repository.EvaluationSummaryRepository;
 import ac.su.kdt.beaievaluationservice.repository.EvaluationHistoryRepository;
-import ac.su.kdt.beaievaluationservice.repository.MissionTempSaveRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -33,7 +31,6 @@ public class TestDataController {
     private final AIEvaluationRepository aiEvaluationRepository;
     private final EvaluationSummaryRepository evaluationSummaryRepository;
     private final EvaluationHistoryRepository evaluationHistoryRepository;
-    private final MissionTempSaveRepository missionTempSaveRepository;
     private final ac.su.kdt.beaievaluationservice.service.MockS3DataService mockS3DataService;
 
     /**
@@ -112,7 +109,6 @@ public class TestDataController {
             dbStatus.put("ai_evaluations", aiEvaluationRepository.count());
             dbStatus.put("evaluation_summaries", evaluationSummaryRepository.count());
             dbStatus.put("evaluation_histories", evaluationHistoryRepository.count());
-            dbStatus.put("mission_temp_saves", missionTempSaveRepository.count());
             dbStatus.put("timestamp", LocalDateTime.now());
 
             return ResponseEntity.ok(ApiResponse.success("데이터베이스 상태를 조회했습니다.", dbStatus));
@@ -149,11 +145,6 @@ public class TestDataController {
         log.info("Create sample data requested");
 
         try {
-            // 샘플 임시 저장 데이터 생성
-            createSampleTempSave("test-user-001", "mission-java-001", "attempt-001");
-            createSampleTempSave("test-user-001", "mission-python-002", "attempt-002");
-            createSampleTempSave("test-user-002", "mission-docker-003", "attempt-003");
-
             // 샘플 AI 평가 데이터 생성
             createSampleEvaluation("attempt-004", AIEvaluation.EvaluationStatus.COMPLETED);
             createSampleEvaluation("attempt-005", AIEvaluation.EvaluationStatus.PROCESSING);
@@ -179,7 +170,6 @@ public class TestDataController {
             evaluationHistoryRepository.deleteAll();
             evaluationSummaryRepository.deleteAll();
             aiEvaluationRepository.deleteAll();
-            missionTempSaveRepository.deleteAll();
 
             return ResponseEntity.ok(ApiResponse.success("모든 데이터가 삭제되었습니다."));
 
@@ -217,10 +207,6 @@ public class TestDataController {
         log.info("Delete user data requested for userId: {}", userId);
 
         try {
-            // 임시 저장 데이터 삭제
-            missionTempSaveRepository.findByUserIdOrderByUpdatedAtDesc(userId)
-                    .forEach(missionTempSaveRepository::delete);
-
             // 평가 요약 데이터 삭제 (연관된 히스토리도 자동 삭제됨)
             evaluationSummaryRepository.findByUserIdOrderByCreatedAtDesc(userId)
                     .forEach(evaluationSummaryRepository::delete);
@@ -262,19 +248,6 @@ public class TestDataController {
         }
     }
 
-    private void createSampleTempSave(String userId, String missionId, String missionAttemptId) {
-        MissionTempSave tempSave = new MissionTempSave();
-        tempSave.setUserId(userId);
-        tempSave.setMissionId(missionId);
-        tempSave.setMissionAttemptId(missionAttemptId);
-        tempSave.setMissionType("JavaScript");
-        tempSave.setMissionTitle("샘플 JavaScript 미션");
-        tempSave.setTempCode("console.log('샘플 임시 저장 코드');");
-        tempSave.setSaveCount(1);
-        tempSave.setSaveStatus(MissionTempSave.SaveStatus.TEMP_SAVED);
-        tempSave.setIsFinalCompleted(false);
-        missionTempSaveRepository.save(tempSave);
-    }
 
     /**
      * 목업 AI 평가 결과 생성 (테스트용)
