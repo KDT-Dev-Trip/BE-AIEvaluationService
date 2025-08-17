@@ -1,0 +1,63 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: be-ai-evaluation-service-netpol
+  namespace: be-ai-evaluation
+  labels:
+    app: be-ai-evaluation-service
+spec:
+  podSelector:
+    matchLabels:
+      app: be-ai-evaluation-service
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow traffic from ingress controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8080
+  # Allow traffic from monitoring namespace (Prometheus)
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8080
+  # Allow traffic within the same namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: be-ai-evaluation
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  # Allow DNS resolution
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow HTTPS traffic for external APIs (Gemini, AWS)
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+  # Allow HTTP traffic for health checks and monitoring
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 80
+  # Allow Kafka communication
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kafka
+    ports:
+    - protocol: TCP
+      port: 9092

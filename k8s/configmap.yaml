@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: be-ai-evaluation-config
+  namespace: be-ai-evaluation
+data:
+  application.properties: |
+    spring.application.name=BE-AI-evaluation-service
+    
+    # Gemini API Configuration
+    gemini.api.url=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent
+    
+    # Database Configuration - H2 with optimized settings
+    spring.datasource.url=jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL;LOCK_TIMEOUT=10000
+    spring.datasource.driver-class-name=org.h2.Driver
+    spring.datasource.username=sa
+    spring.datasource.password=
+    spring.h2.console.enabled=false
+    spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
+    spring.jpa.hibernate.ddl-auto=update
+    spring.jpa.show-sql=false
+    spring.jpa.properties.hibernate.format_sql=false
+    spring.jpa.properties.hibernate.connection.pool_size=10
+    spring.jpa.properties.hibernate.connection.autocommit=true
+    spring.jpa.properties.hibernate.jdbc.batch_size=20
+    spring.jpa.properties.hibernate.order_inserts=true
+    
+    # SpringDoc OpenAPI Configuration
+    springdoc.api-docs.path=/api-docs
+    springdoc.swagger-ui.path=/swagger-ui
+    springdoc.swagger-ui.try-it-out-enabled=true
+    springdoc.swagger-ui.operations-sorter=method
+    springdoc.swagger-ui.tags-sorter=alpha
+    springdoc.swagger-ui.filter=false
+    springdoc.show-actuator=false
+    
+    # Kafka Configuration
+    spring.kafka.bootstrap-servers=kafka-service:9092
+    spring.kafka.consumer.group-id=ai-evaluation-group
+    spring.kafka.consumer.auto-offset-reset=earliest
+    spring.kafka.consumer.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer
+    spring.kafka.consumer.value-deserializer=org.springframework.kafka.support.serializer.JsonDeserializer
+    spring.kafka.consumer.properties.spring.json.trusted.packages=*
+    
+    # Kafka Topics
+    kafka.topic.mission-completed=mission.completed
+    kafka.topic.mission-temp-save=mission.temp.save
+    kafka.topic.evaluation-completed=evaluation.completed
+    
+    # AWS S3 Configuration
+    aws.s3.region=ap-northeast-2
+    
+    # Management endpoints
+    management.endpoints.web.exposure.include=health,info,metrics,prometheus
+    management.endpoint.health.show-details=always
+    management.health.readiness-state.enabled=true
+    management.health.liveness-state.enabled=true

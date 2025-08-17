@@ -35,4 +35,53 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### Environment Variables ###
 .env
+.env.local
+.env.*.local
+
+### CI/CD ###
+# Jenkins
+.jenkins/
+jenkins.log
+
+# Docker
+.docker/
+docker-compose.override.local.yml
+
+# Kubernetes secrets (never commit real secrets)
+k8s/secret-values.yaml
+
+# ArgoCD
+argocd-secret.yaml
+
+### Monitoring & Logs ###
+logs/
+*.log
+monitoring/data/
+
+### Security ###
+# Secret files
+*secret*
+*Secret*
+*SECRET*
+*credentials*
+*Credentials*
+*CREDENTIALS*
+*.pem
+*.key
+*.crt
+
+# But allow example files
+!*.example
+!*secret*.yaml
+!*Secret*.yaml
+
+### Temporary files ###
+tmp/
+temp/
+*.tmp
+*.swp
+*.swo
+*~

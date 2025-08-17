@@ -1,0 +1,25 @@
+# Override file for development
+version: '3.8'
+
+services:
+  be-ai-evaluation-service:
+    build:
+      target: build  # Use build stage for faster development
+    volumes:
+      - .:/app
+      - ~/.gradle:/home/gradle/.gradle
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - SPRING_DEVTOOLS_RESTART_ENABLED=true
+    command: ["./gradlew", "bootRun", "--no-daemon"]
+    
+  # Add development tools
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - be-ai-evaluation-network
+    restart: unless-stopped

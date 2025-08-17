@@ -1,0 +1,78 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: be-ai-evaluation-project
+  namespace: argocd
+  labels:
+    project: be-ai-evaluation
+spec:
+  description: Project for BE AI Evaluation Service
+  sourceRepos:
+  - 'https://github.com/your-org/k8s-manifests.git'  # Replace with your manifests repo
+  - 'https://github.com/your-org/BE-AI-evaluation-service.git'  # Replace with your source repo
+  destinations:
+  - namespace: be-ai-evaluation
+    server: https://kubernetes.default.svc
+  - namespace: be-ai-evaluation-staging
+    server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+  - group: ''
+    kind: Namespace
+  - group: 'networking.k8s.io'
+    kind: NetworkPolicy
+  - group: 'rbac.authorization.k8s.io'
+    kind: ClusterRole
+  - group: 'rbac.authorization.k8s.io'
+    kind: ClusterRoleBinding
+  namespaceResourceWhitelist:
+  - group: ''
+    kind: Secret
+  - group: ''
+    kind: ConfigMap
+  - group: ''
+    kind: Service
+  - group: ''
+    kind: ServiceAccount
+  - group: 'apps'
+    kind: Deployment
+  - group: 'apps'
+    kind: ReplicaSet
+  - group: 'networking.k8s.io'
+    kind: Ingress
+  - group: 'autoscaling'
+    kind: HorizontalPodAutoscaler
+  - group: 'policy'
+    kind: PodDisruptionBudget
+  roles:
+  - name: developer
+    description: Developer role for BE AI Evaluation Service
+    policies:
+    - p, proj:be-ai-evaluation-project:developer, applications, get, be-ai-evaluation-project/*, allow
+    - p, proj:be-ai-evaluation-project:developer, applications, sync, be-ai-evaluation-project/*-staging, allow
+    - p, proj:be-ai-evaluation-project:developer, logs, get, be-ai-evaluation-project/*, allow
+    - p, proj:be-ai-evaluation-project:developer, exec, create, be-ai-evaluation-project/*-staging, allow
+    groups:
+    - devops-team
+    - developers
+  - name: admin
+    description: Admin role for BE AI Evaluation Service
+    policies:
+    - p, proj:be-ai-evaluation-project:admin, applications, *, be-ai-evaluation-project/*, allow
+    - p, proj:be-ai-evaluation-project:admin, logs, *, be-ai-evaluation-project/*, allow
+    - p, proj:be-ai-evaluation-project:admin, exec, *, be-ai-evaluation-project/*, allow
+    groups:
+    - platform-team
+    - devops-leads
+  syncWindows:
+  - kind: allow
+    schedule: '* * * * *'
+    duration: 24h
+    applications:
+    - 'be-ai-evaluation-service-staging'
+    timeZone: "Asia/Seoul"
+  - kind: deny
+    schedule: '0 22 * * 1-5'  # No deployments during business hours (Mon-Fri 22:00-06:00 KST)
+    duration: 8h
+    applications:
+    - 'be-ai-evaluation-service-prod'
+    timeZone: "Asia/Seoul"

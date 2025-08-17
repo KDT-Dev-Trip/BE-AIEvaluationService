@@ -13,7 +13,8 @@
       "Bash(find:*)",
       "Bash(mv:*)",
       "Bash(del /q \"C:\\workspace\\devtrip\\BE-AI-evaluation-service\\src\\main\\java\\ac\\su\\kdt\\beaievaluationservice\\config\\AsyncConfig.java\")",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(del /q \"C:\\workspace\\devtrip\\BE-AI-evaluation-service\\README-CICD.md\")"
     ],
     "deny": []
   }

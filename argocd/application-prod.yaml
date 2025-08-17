@@ -1,0 +1,44 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: be-ai-evaluation-service-prod
+  namespace: argocd
+  labels:
+    app: be-ai-evaluation-service
+    environment: production
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/your-org/k8s-manifests.git  # Replace with your manifests repo
+    targetRevision: HEAD
+    path: be-ai-evaluation-service/production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: be-ai-evaluation
+  syncPolicy:
+    automated:
+      prune: false  # Manual approval for production
+      selfHeal: false
+      allowEmpty: false
+    syncOptions:
+    - CreateNamespace=true
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  revisionHistoryLimit: 20
+  ignoreDifferences:
+  - group: apps
+    kind: Deployment
+    jsonPointers:
+    - /spec/replicas
+  - group: ""
+    kind: Service
+    jsonPointers:
+    - /spec/clusterIP
