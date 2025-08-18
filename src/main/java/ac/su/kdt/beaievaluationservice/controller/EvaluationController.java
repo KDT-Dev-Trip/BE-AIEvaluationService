@@ -309,10 +309,12 @@ public class EvaluationController {
                         .body(ApiResponse.failure("AI 평가에 실패했습니다: " + eval.getErrorMessage(), response));
             }
             
-            // 점수가 모두 0이거나 피드백이 "모의 데이터"를 포함하면 실패로 간주
+            // 점수가 0이고 피드백이 명확히 실패를 나타내는 경우에만 실패로 간주
             if (response.getOverallScore() != null && response.getOverallScore() == 0 && 
                 response.getFeedback() != null && 
-                (response.getFeedback().contains("모의 데이터") || response.getFeedback().contains("실제 데이터를 제공"))) {
+                (response.getFeedback().contains("평가할 수 없습니다") || 
+                 response.getFeedback().contains("데이터가 부족합니다") ||
+                 response.getFeedback().contains("분석이 불가능합니다"))) {
                 return ResponseEntity.status(400) // Bad Request
                         .body(ApiResponse.failure("AI가 제공된 데이터를 평가하기에 부적절하다고 판단했습니다.", response));
             }

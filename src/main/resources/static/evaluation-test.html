@@ -206,9 +206,12 @@
 
         .charts-container {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr;
             gap: 30px;
             margin-bottom: 30px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
         }
 
         .chart-card {
@@ -459,10 +462,6 @@
 
         @media (max-width: 1200px) {
             .main-content {
-                grid-template-columns: 1fr;
-            }
-            
-            .charts-container {
                 grid-template-columns: 1fr;
             }
         }
@@ -725,48 +724,7 @@ services:
             };
         }
 
-        function generateMockCommands() {
-            const commandTemplates = {
-                kubernetes: [
-                    { command: "kubectl apply -f deployment.yaml", explanation: "YAML 파일을 사용한 디플로이먼트 생성", assessment: "올바른 사용 ✅" },
-                    { command: "kubectl get pods --all-namespaces", explanation: "모든 네임스페이스의 파드 상태 확인", assessment: "모범 사례 ⭐" },
-                    { command: "kubectl expose deployment nginx --port=80 --type=LoadBalancer", explanation: "LoadBalancer 타입으로 서비스 노출", assessment: "효과적 사용 👍" },
-                    { command: "kubectl logs -f deployment/nginx", explanation: "실시간 로그 모니터링", assessment: "운영 친화적 🔍" }
-                ],
-                docker: [
-                    { command: "docker build -t myapp:latest .", explanation: "현재 디렉토리에서 Docker 이미지 빌드", assessment: "표준 사용법 ✅" },
-                    { command: "docker run -d -p 8080:80 nginx", explanation: "백그라운드로 컨테이너 실행 및 포트 매핑", assessment: "적절한 옵션 👍" },
-                    { command: "docker ps -a", explanation: "모든 컨테이너 상태 확인", assessment: "기본 점검 ⭐" },
-                    { command: "docker logs --tail 50 container-name", explanation: "최근 50줄 로그만 확인", assessment: "효율적 사용 🚀" }
-                ],
-                general: [
-                    { command: "systemctl status nginx", explanation: "서비스 상태 확인", assessment: "시스템 점검 ✅" },
-                    { command: "ps aux | grep java", explanation: "Java 프로세스 확인", assessment: "프로세스 모니터링 👍" },
-                    { command: "df -h", explanation: "디스크 사용량 확인", assessment: "리소스 관리 ⭐" }
-                ]
-            };
-            
-            // 랜덤하게 3-5개 명령어 선택
-            const missionType = document.getElementById('missionType').value.toLowerCase();
-            let commands = commandTemplates.kubernetes; // 기본값
-            
-            if (missionType === 'docker') {
-                commands = commandTemplates.docker;
-            } else if (missionType === 'spring' || missionType === 'monitoring') {
-                commands = [...commandTemplates.docker, ...commandTemplates.general];
-            }
-            
-            // 3-5개 랜덤 선택
-            const numberOfCommands = Math.floor(Math.random() * 3) + 3;
-            const selectedCommands = [];
-            const shuffled = [...commands].sort(() => 0.5 - Math.random());
-            
-            for (let i = 0; i < Math.min(numberOfCommands, shuffled.length); i++) {
-                selectedCommands.push(shuffled[i]);
-            }
-            
-            return selectedCommands;
-        }
+
 
         function showLoading(message) {
             document.getElementById('result').innerHTML = `
@@ -799,11 +757,6 @@ services:
             const styleScore = data.styleScore || 0;
             
             // Mock data for enhanced visualization
-            const mockCoreCommands = {
-                kubectl_usage: { score: Math.floor(Math.random() * 5) + 1, details: "kubectl 명령어 사용이 적절합니다" },
-                docker_usage: { score: Math.floor(Math.random() * 5) + 1, details: "Docker 명령어 구문이 정확합니다" },
-                other_tools: { score: Math.floor(Math.random() * 5) + 1, details: "기타 도구들을 효과적으로 활용했습니다" }
-            };
 
             const mockChecklist = [
                 { objective: "컨테이너 이미지 빌드", achievement_rate: Math.floor(Math.random() * 30) + 70 },
@@ -861,12 +814,6 @@ services:
                             <canvas id="scoreChart"></canvas>
                         </div>
                     </div>
-                    <div class="chart-card">
-                        <h4><i class="fas fa-chart-bar"></i> 핵심 명령어 분석</h4>
-                        <div class="canvas-container">
-                            <canvas id="commandChart"></canvas>
-                        </div>
-                    </div>
                 </div>
 
                 <!-- Checklist Analysis -->
@@ -887,49 +834,6 @@ services:
                     </div>
                 </div>
 
-                <!-- Core Commands Analysis -->
-                <div class="analysis-section">
-                    <h4><i class="fas fa-terminal"></i> 핵심 명령어 사용 분석</h4>
-                    
-                    <!-- 실제 사용된 명령어들 -->
-                    <div style="margin-bottom: 30px;">
-                        <h5 style="color: #495057; margin-bottom: 15px;"><i class="fas fa-code"></i> 사용된 핵심 명령어들</h5>
-                        <div class="command-list" style="background: #f8f9fa; border-radius: 10px; padding: 20px;">
-                            ${generateMockCommands().map(cmd => `
-                                <div style="margin-bottom: 20px; padding: 15px; background: white; border-radius: 8px; border-left: 4px solid #4facfe;">
-                                    <div style="font-family: 'Courier New', monospace; font-weight: bold; color: #2c3e50; margin-bottom: 8px;">
-                                        <i class="fas fa-chevron-right" style="color: #4facfe; margin-right: 8px;"></i>${cmd.command}
-                                    </div>
-                                    <div style="color: #6c757d; font-size: 0.9rem; margin-bottom: 5px;">
-                                        <strong>설명:</strong> ${cmd.explanation}
-                                    </div>
-                                    <div style="color: #28a745; font-size: 0.9rem; font-weight: 600;">
-                                        <strong>평가:</strong> ${cmd.assessment}
-                                    </div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-
-                    <!-- 도구별 숙련도 -->
-                    <div class="command-analysis">
-                        <div class="command-card">
-                            <h5><i class="fab fa-kubernetes"></i> kubectl 사용</h5>
-                            <p><strong>숙련도:</strong> ${mockCoreCommands.kubectl_usage.score}/5</p>
-                            <p>${mockCoreCommands.kubectl_usage.details}</p>
-                        </div>
-                        <div class="command-card">
-                            <h5><i class="fab fa-docker"></i> Docker 사용</h5>
-                            <p><strong>숙련도:</strong> ${mockCoreCommands.docker_usage.score}/5</p>
-                            <p>${mockCoreCommands.docker_usage.details}</p>
-                        </div>
-                        <div class="command-card">
-                            <h5><i class="fas fa-tools"></i> 기타 도구</h5>
-                            <p><strong>숙련도:</strong> ${mockCoreCommands.other_tools.score}/5</p>
-                            <p>${mockCoreCommands.other_tools.details}</p>
-                        </div>
-                    </div>
-                </div>
 
                 <!-- Resource Metrics -->
                 <div class="analysis-section">
@@ -1022,7 +926,6 @@ services:
             // Create charts after DOM is updated
             setTimeout(() => {
                 createScoreChart(overallScore, codeQualityScore, securityScore, styleScore);
-                createCommandChart(mockCoreCommands);
             }, 100);
         }
 
@@ -1057,46 +960,7 @@ services:
             });
         }
 
-        function createCommandChart(commands) {
-            const ctx = document.getElementById('commandChart');
-            if (!ctx) return;
 
-            new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: ['kubectl', 'Docker', '기타 도구'],
-                    datasets: [{
-                        label: '숙련도 (5점 만점)',
-                        data: [commands.kubectl_usage.score, commands.docker_usage.score, commands.other_tools.score],
-                        backgroundColor: [
-                            '#4facfe',
-                            '#00f2fe',
-                            '#667eea'
-                        ],
-                        borderRadius: 8,
-                        borderSkipped: false,
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            max: 5,
-                            ticks: {
-                                stepSize: 1
-                            }
-                        }
-                    },
-                    plugins: {
-                        legend: {
-                            display: false
-                        }
-                    }
-                }
-            });
-        }
 
         // Initialize dashboard
         window.addEventListener('load', function() {

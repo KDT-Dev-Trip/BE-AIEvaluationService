@@ -46,7 +46,7 @@ class MissionCompletedEventConsumerTest {
             validEvent, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService).processEvaluationAsync(validEvent);
+        verify(evaluationService).processEvaluation(validEvent);
         verify(acknowledgment).acknowledge();
     }
 
@@ -58,7 +58,7 @@ class MissionCompletedEventConsumerTest {
             null, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService, never()).processEvaluationAsync(any());
+        verify(evaluationService, never()).processEvaluation(any());
         verify(acknowledgment).acknowledge(); // 잘못된 이벤트는 acknowledge하여 재처리 방지
     }
 
@@ -75,7 +75,7 @@ class MissionCompletedEventConsumerTest {
             invalidEvent, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService, never()).processEvaluationAsync(any());
+        verify(evaluationService, never()).processEvaluation(any());
         verify(acknowledgment).acknowledge();
     }
 
@@ -92,7 +92,7 @@ class MissionCompletedEventConsumerTest {
             invalidEvent, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService, never()).processEvaluationAsync(any());
+        verify(evaluationService, never()).processEvaluation(any());
         verify(acknowledgment).acknowledge();
     }
 
@@ -109,7 +109,7 @@ class MissionCompletedEventConsumerTest {
             invalidEvent, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService, never()).processEvaluationAsync(any());
+        verify(evaluationService, never()).processEvaluation(any());
         verify(acknowledgment).acknowledge();
     }
 
@@ -126,7 +126,7 @@ class MissionCompletedEventConsumerTest {
             invalidEvent, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService, never()).processEvaluationAsync(any());
+        verify(evaluationService, never()).processEvaluation(any());
         verify(acknowledgment).acknowledge();
     }
 
@@ -135,14 +135,14 @@ class MissionCompletedEventConsumerTest {
     void handleMissionCompletedEvent_EvaluationServiceException() {
         // Given
         doThrow(new RuntimeException("Evaluation service error"))
-            .when(evaluationService).processEvaluationAsync(any());
+            .when(evaluationService).processEvaluation(any());
 
         // When
         missionCompletedEventConsumer.handleMissionCompletedEvent(
             validEvent, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService).processEvaluationAsync(validEvent);
+        verify(evaluationService).processEvaluation(validEvent);
         verify(acknowledgment, never()).acknowledge(); // 예외 발생 시 acknowledge하지 않음
     }
 
@@ -159,7 +159,7 @@ class MissionCompletedEventConsumerTest {
             invalidEvent, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService, never()).processEvaluationAsync(any());
+        verify(evaluationService, never()).processEvaluation(any());
         verify(acknowledgment).acknowledge();
     }
 
@@ -176,7 +176,7 @@ class MissionCompletedEventConsumerTest {
             invalidEvent, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService, never()).processEvaluationAsync(any());
+        verify(evaluationService, never()).processEvaluation(any());
         verify(acknowledgment).acknowledge();
     }
 
@@ -195,7 +195,7 @@ class MissionCompletedEventConsumerTest {
             minimalEvent, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService).processEvaluationAsync(minimalEvent);
+        verify(evaluationService).processEvaluation(minimalEvent);
         verify(acknowledgment).acknowledge();
     }
 }

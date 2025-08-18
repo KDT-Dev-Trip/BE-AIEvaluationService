@@ -45,8 +45,6 @@ class EvaluationServiceTest {
     private GeminiEvaluationService geminiEvaluationService;
     
     
-    @Mock
-    private MissionTempSaveService missionTempSaveService;
     
     @Mock
     private EvaluationEventPublisher evaluationEventPublisher;
@@ -70,7 +68,7 @@ class EvaluationServiceTest {
 
     @Test
     @DisplayName("정상적인 평가 처리 - 성공 케이스")
-    void processEvaluationAsync_Success() throws Exception {
+    void processEvaluation_Success() throws Exception {
         // Given
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
@@ -78,7 +76,7 @@ class EvaluationServiceTest {
         when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":85}");
 
         // When
-        evaluationService.processEvaluationAsync(testEvent);
+        evaluationService.processEvaluation(testEvent);
 
         // Then
         verify(aiEvaluationRepository, times(3)).save(any(AIEvaluation.class)); // Initial, Processing, Completed
@@ -90,12 +88,12 @@ class EvaluationServiceTest {
 
     @Test
     @DisplayName("중복 평가 요청 - 이미 존재하는 경우")
-    void processEvaluationAsync_DuplicateRequest() {
+    void processEvaluation_DuplicateRequest() {
         // Given
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(true);
 
         // When
-        evaluationService.processEvaluationAsync(testEvent);
+        evaluationService.processEvaluation(testEvent);
 
         // Then
         verify(aiEvaluationRepository, never()).save(any(AIEvaluation.class));
@@ -105,7 +103,7 @@ class EvaluationServiceTest {
 
     @Test
     @DisplayName("Gemini API 호출 실패 - 평가 실패 처리")
-    void processEvaluationAsync_GeminiApiFailed() {
+    void processEvaluation_GeminiApiFailed() {
         // Given
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
@@ -113,7 +111,7 @@ class EvaluationServiceTest {
             .thenThrow(new RuntimeException("Gemini API failed"));
 
         // When
-        evaluationService.processEvaluationAsync(testEvent);
+        evaluationService.processEvaluation(testEvent);
 
         // Then
         verify(aiEvaluationRepository, times(3)).save(argThat(evaluation -> {
@@ -130,7 +128,7 @@ class EvaluationServiceTest {
 
     @Test
     @DisplayName("JSON 변환 실패 - 평가 실패 처리")
-    void processEvaluationAsync_JsonSerializationFailed() throws Exception {
+    void processEvaluation_JsonSerializationFailed() throws Exception {
         // Given
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
@@ -138,7 +136,7 @@ class EvaluationServiceTest {
         when(objectMapper.writeValueAsString(testResult)).thenThrow(new RuntimeException("JSON serialization failed"));
 
         // When
-        evaluationService.processEvaluationAsync(testEvent);
+        evaluationService.processEvaluation(testEvent);
 
         // Then
         verify(aiEvaluationRepository, times(3)).save(argThat(evaluation -> {
@@ -155,7 +153,7 @@ class EvaluationServiceTest {
 
     @Test
     @DisplayName("평가 상태 변경 추적 검증")
-    void processEvaluationAsync_VerifyStatusChangeTracking() throws Exception {
+    void processEvaluation_VerifyStatusChangeTracking() throws Exception {
         // Given
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
@@ -163,7 +161,7 @@ class EvaluationServiceTest {
         when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":85}");
 
         // When
-        evaluationService.processEvaluationAsync(testEvent);
+        evaluationService.processEvaluation(testEvent);
 
         // Then - 상태 변경 이력이 올바르게 기록되는지 검증
         verify(evaluationHistoryRepository, times(3)).save(argThat(history -> {
@@ -176,7 +174,7 @@ class EvaluationServiceTest {
 
     @Test
     @DisplayName("EvaluationSummary 생성 검증")
-    void processEvaluationAsync_VerifyEvaluationSummaryCreation() throws Exception {
+    void processEvaluation_VerifyEvaluationSummaryCreation() throws Exception {
         // Given
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
@@ -184,7 +182,7 @@ class EvaluationServiceTest {
         when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":85}");
 
         // When
-        evaluationService.processEvaluationAsync(testEvent);
+        evaluationService.processEvaluation(testEvent);
 
         // Then - EvaluationSummary가 올바르게 생성되는지 검증
         verify(evaluationSummaryRepository).save(argThat(summary -> {

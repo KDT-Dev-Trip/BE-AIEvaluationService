@@ -88,7 +88,7 @@ class EvaluationIntegrationTest {
         setupSuccessfulGeminiApiResponse();
 
         // When - 평가 프로세스 실행
-        evaluationService.processEvaluationAsync(testEvent);
+        evaluationService.processEvaluation(testEvent);
 
         // Then - 비동기 처리 완료 대기 및 검증
         await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -151,7 +151,7 @@ class EvaluationIntegrationTest {
         aiEvaluationRepository.save(existingEvaluation);
 
         // When - 중복 평가 요청
-        evaluationService.processEvaluationAsync(testEvent);
+        evaluationService.processEvaluation(testEvent);
 
         // Then - 새로운 평가가 생성되지 않음
         List<AIEvaluation> evaluations = aiEvaluationRepository
@@ -171,7 +171,7 @@ class EvaluationIntegrationTest {
             .thenThrow(new RuntimeException("Gemini API connection failed"));
 
         // When - 평가 프로세스 실행
-        evaluationService.processEvaluationAsync(testEvent);
+        evaluationService.processEvaluation(testEvent);
 
         // Then - 실패 처리 확인
         await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -229,7 +229,7 @@ class EvaluationIntegrationTest {
             .thenReturn(new ResponseEntity<>(invalidGeminiResponse, HttpStatus.OK));
 
         // When - 평가 프로세스 실행
-        evaluationService.processEvaluationAsync(testEvent);
+        evaluationService.processEvaluation(testEvent);
 
         // Then - Fallback 처리 확인
         await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {

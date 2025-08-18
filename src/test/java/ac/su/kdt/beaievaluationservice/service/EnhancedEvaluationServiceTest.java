@@ -4,7 +4,6 @@ import ac.su.kdt.beaievaluationservice.dto.EvaluationResultDTO;
 import ac.su.kdt.beaievaluationservice.entity.AIEvaluation;
 import ac.su.kdt.beaievaluationservice.entity.EvaluationSummary;
 import ac.su.kdt.beaievaluationservice.entity.EvaluationHistory;
-import ac.su.kdt.beaievaluationservice.entity.MissionTempSave;
 import ac.su.kdt.beaievaluationservice.kafka.event.MissionCompletedEvent;
 import ac.su.kdt.beaievaluationservice.kafka.publisher.EvaluationEventPublisher;
 import ac.su.kdt.beaievaluationservice.repository.AIEvaluationRepository;
@@ -29,7 +28,6 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 개선된 AI 평가 서비스 테스트 (TDD 방식)
- * - Prometheus 의존성 제거됨
  * - 새로운 평가 방식: 미션 목표, 체크리스트, S3 URL, 통계 정보 포함
  * - evaluation.completed 이벤트 발행 검증
  */
@@ -50,9 +48,6 @@ class EnhancedEvaluationServiceTest {
     private GeminiEvaluationService geminiEvaluationService;
     
     @Mock
-    private MissionTempSaveService missionTempSaveService;
-    
-    @Mock
     private EvaluationEventPublisher evaluationEventPublisher;
 
     @Mock
@@ -65,7 +60,6 @@ class EnhancedEvaluationServiceTest {
     private MissionCompletedEvent basicTestEvent;
     private AIEvaluation testEvaluation;
     private EvaluationResultDTO testResult;
-    private MissionTempSave mockTempSave;
 
     @BeforeEach
     void setUp() {
@@ -73,16 +67,14 @@ class EnhancedEvaluationServiceTest {
         basicTestEvent = createBasicMissionCompletedEvent();
         testEvaluation = createTestAIEvaluation();
         testResult = createTestEvaluationResult();
-        mockTempSave = createMockTempSave();
     }
 
     @Test
     @DisplayName("새로운 평가 방식 - 미션 목표, 체크리스트, S3 URL, 통계 정보 포함된 성공적인 평가")
-    void processEvaluationAsync_WithEnhancedFields_Success() throws Exception {
+    void processEvaluation_WithEnhancedFields_Success() throws Exception {
         // Given - 향상된 필드들이 포함된 이벤트
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(missionTempSaveService.getTempSave("attempt-123")).thenReturn(Optional.empty());
         
         // 새로운 8개 파라미터 메서드 호출 모킹
         when(geminiEvaluationService.evaluateCode(
@@ -99,7 +91,7 @@ class EnhancedEvaluationServiceTest {
         when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":88}");
 
         // When
-        evaluationService.processEvaluationAsync(testEventWithEnhancedFields);
+        evaluationService.processEvaluation(testEventWithEnhancedFields);
 
         // Then - 새로운 평가 방식 메서드가 올바른 파라미터로 호출되었는지 검증
         verify(geminiEvaluationService).evaluateCode(
@@ -122,11 +114,10 @@ class EnhancedEvaluationServiceTest {
 
     @Test
     @DisplayName("통계 정보가 포함된 evaluation.completed 이벤트 발행 검증")
-    void processEvaluationAsync_PublishEventWithStatistics_VerifyEventContent() throws Exception {
+    void processEvaluation_PublishEventWithStatistics_VerifyEventContent() throws Exception {
         // Given
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(missionTempSaveService.getTempSave("attempt-123")).thenReturn(Optional.empty());
         
         when(geminiEvaluationService.evaluateCode(
             anyString(), anyString(), anyString(), anyString(), any(), anyString(), anyString(), any()
@@ -135,7 +126,7 @@ class EnhancedEvaluationServiceTest {
         when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":88}");
 
         // When
-        evaluationService.processEvaluationAsync(testEventWithEnhancedFields);
+        evaluationService.processEvaluation(testEventWithEnhancedFields);
 
         // Then - evaluation.completed 이벤트에 통계 정보가 정확히 포함되는지 검증
         verify(evaluationEventPublisher).publishEvaluationCompleted(argThat(event -> {
@@ -164,11 +155,10 @@ class EnhancedEvaluationServiceTest {
 
     @Test
     @DisplayName("선택적 필드들이 null인 경우에도 정상 처리 (하위 호환성)")
-    void processEvaluationAsync_WithNullOptionalFields_BackwardCompatibility() throws Exception {
+    void processEvaluation_WithNullOptionalFields_BackwardCompatibility() throws Exception {
         // Given - 기본 이벤트 (새 필드들이 null)
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(missionTempSaveService.getTempSave("attempt-123")).thenReturn(Optional.empty());
         
         // 정확한 파라미터로 매칭
         when(geminiEvaluationService.evaluateCode(
@@ -181,7 +171,7 @@ class EnhancedEvaluationServiceTest {
         when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":85}");
 
         // When
-        evaluationService.processEvaluationAsync(basicTestEvent);
+        evaluationService.processEvaluation(basicTestEvent);
 
         // Then - null 값들이 그대로 전달되는지 검증 (하위 호환성)
         verify(geminiEvaluationService).evaluateCode(
@@ -200,39 +190,13 @@ class EnhancedEvaluationServiceTest {
     }
 
     @Test
-    @DisplayName("임시 저장 데이터가 있는 경우 - 최종 완료 상태 업데이트")
-    void processEvaluationAsync_WithTempSaveData_UpdateFinalStatus() throws Exception {
-        // Given - 임시 저장 데이터가 존재하는 경우
-        when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
-        when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(missionTempSaveService.getTempSave("attempt-123")).thenReturn(Optional.of(mockTempSave));
-        
-        when(geminiEvaluationService.evaluateCode(
-            anyString(), anyString(), anyString(), anyString(), any(), anyString(), anyString(), any()
-        )).thenReturn(testResult);
-        
-        when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":88}");
-
-        // When
-        evaluationService.processEvaluationAsync(testEventWithEnhancedFields);
-
-        // Then - 임시 저장 서비스 호출 검증
-        verify(missionTempSaveService).getTempSave("attempt-123");
-        verify(missionTempSaveService).markAsCompleted("attempt-123");
-        
-        // 평가는 정상 완료
-        verify(aiEvaluationRepository, times(3)).save(any(AIEvaluation.class));
-        verify(evaluationEventPublisher).publishEvaluationCompleted(any());
-    }
-
-    @Test
     @DisplayName("중복 평가 요청 방지 - 이미 평가가 존재하는 경우")
-    void processEvaluationAsync_DuplicateEvaluation_PreventDuplicateProcessing() {
+    void processEvaluation_DuplicateEvaluation_PreventDuplicateProcessing() {
         // Given - 이미 평가가 존재하는 경우
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(true);
 
         // When
-        evaluationService.processEvaluationAsync(testEventWithEnhancedFields);
+        evaluationService.processEvaluation(testEventWithEnhancedFields);
 
         // Then - 중복 처리 방지 검증
         verify(aiEvaluationRepository, never()).save(any(AIEvaluation.class));
@@ -244,18 +208,17 @@ class EnhancedEvaluationServiceTest {
 
     @Test
     @DisplayName("Gemini API 호출 실패 시 - 적절한 실패 처리 및 이벤트 발행")
-    void processEvaluationAsync_GeminiApiFailed_HandleFailureGracefully() {
+    void processEvaluation_GeminiApiFailed_HandleFailureGracefully() {
         // Given
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(missionTempSaveService.getTempSave("attempt-123")).thenReturn(Optional.empty());
         
         when(geminiEvaluationService.evaluateCode(
             anyString(), anyString(), anyString(), anyString(), any(), anyString(), anyString(), any()))
             .thenThrow(new RuntimeException("Enhanced Gemini API evaluation failed"));
 
         // When
-        evaluationService.processEvaluationAsync(testEventWithEnhancedFields);
+        evaluationService.processEvaluation(testEventWithEnhancedFields);
 
         // Then - 실패 상태로 저장 검증
         verify(aiEvaluationRepository, times(3)).save(argThat(evaluation -> {
@@ -279,11 +242,10 @@ class EnhancedEvaluationServiceTest {
 
     @Test
     @DisplayName("JSON 직렬화 실패 시 - 적절한 오류 처리")
-    void processEvaluationAsync_JsonSerializationFailed_HandleError() throws Exception {
+    void processEvaluation_JsonSerializationFailed_HandleError() throws Exception {
         // Given
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(missionTempSaveService.getTempSave("attempt-123")).thenReturn(Optional.empty());
         
         when(geminiEvaluationService.evaluateCode(
             anyString(), anyString(), anyString(), anyString(), any(), anyString(), anyString(), any()))
@@ -293,7 +255,7 @@ class EnhancedEvaluationServiceTest {
             .thenThrow(new RuntimeException("JSON serialization failed"));
 
         // When
-        evaluationService.processEvaluationAsync(testEventWithEnhancedFields);
+        evaluationService.processEvaluation(testEventWithEnhancedFields);
 
         // Then - JSON 직렬화 실패로 인한 평가 실패 처리
         verify(aiEvaluationRepository, times(3)).save(argThat(evaluation -> {
@@ -409,15 +371,5 @@ class EnhancedEvaluationServiceTest {
         result.setStyle(style);
 
         return result;
-    }
-    
-    private MissionTempSave createMockTempSave() {
-        MissionTempSave tempSave = new MissionTempSave();
-        tempSave.setMissionAttemptId("attempt-123");
-        tempSave.setSaveCount(5);
-        tempSave.setIsFinalCompleted(false);
-        tempSave.setTempCode("FROM ubuntu:20.04\n# 임시 저장된 코드");
-        tempSave.setCreatedAt(LocalDateTime.now().minusMinutes(30));
-        return tempSave;
     }
 }

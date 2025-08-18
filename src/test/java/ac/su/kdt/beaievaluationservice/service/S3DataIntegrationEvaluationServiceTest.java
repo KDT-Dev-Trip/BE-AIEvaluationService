@@ -46,8 +46,6 @@ class S3DataIntegrationEvaluationServiceTest {
     @Mock
     private GeminiEvaluationService geminiEvaluationService;
     
-    @Mock
-    private MissionTempSaveService missionTempSaveService;
     
     @Mock
     private EvaluationEventPublisher evaluationEventPublisher;
@@ -71,11 +69,10 @@ class S3DataIntegrationEvaluationServiceTest {
 
     @Test
     @DisplayName("S3 데이터 직접 읽기 통합 평가 - 커맨드 로그, 메트릭 포함 성공적 평가")
-    void processEvaluationAsync_WithS3DirectDataReading_Success() throws Exception {
+    void processEvaluation_WithS3DirectDataReading_Success() throws Exception {
         // Given - S3에서 직접 데이터를 읽어 평가하는 시나리오
         when(aiEvaluationRepository.existsByMissionAttemptId("s3-mission-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(missionTempSaveService.getTempSave("s3-mission-123")).thenReturn(Optional.empty());
         
         // Gemini 서비스가 S3 URL과 Pre-signed URL을 받아 데이터를 직접 읽도록 설정
         when(geminiEvaluationService.evaluateCode(
@@ -92,7 +89,7 @@ class S3DataIntegrationEvaluationServiceTest {
         when(objectMapper.writeValueAsString(s3BasedResult)).thenReturn("{\"overallScore\":92}");
 
         // When - S3 통합 평가 프로세스 실행
-        evaluationService.processEvaluationAsync(s3IntegratedEvent);
+        evaluationService.processEvaluation(s3IntegratedEvent);
 
         // Then - S3 데이터를 직접 읽어 평가했는지 검증
         verify(geminiEvaluationService).evaluateCode(
@@ -114,11 +111,10 @@ class S3DataIntegrationEvaluationServiceTest {
 
     @Test
     @DisplayName("S3 데이터 기반 evaluation.completed 이벤트 발행 - 실행 로그 분석 결과 포함")
-    void processEvaluationAsync_PublishS3BasedEvaluationEvent() throws Exception {
+    void processEvaluation_PublishS3BasedEvaluationEvent() throws Exception {
         // Given - S3 데이터 분석 결과를 포함한 이벤트 발행
         when(aiEvaluationRepository.existsByMissionAttemptId("s3-mission-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(missionTempSaveService.getTempSave("s3-mission-123")).thenReturn(Optional.empty());
         
         when(geminiEvaluationService.evaluateCode(
             anyString(), anyString(), anyString(), anyString(), any(), anyString(), anyString(), any()
@@ -127,7 +123,7 @@ class S3DataIntegrationEvaluationServiceTest {
         when(objectMapper.writeValueAsString(s3BasedResult)).thenReturn("{\"overallScore\":92}");
 
         // When
-        evaluationService.processEvaluationAsync(s3IntegratedEvent);
+        evaluationService.processEvaluation(s3IntegratedEvent);
 
         // Then - S3 데이터 분석 결과가 포함된 이벤트 발행 검증
         verify(evaluationEventPublisher).publishEvaluationCompleted(argThat(event -> {
@@ -149,13 +145,12 @@ class S3DataIntegrationEvaluationServiceTest {
 
     @Test
     @DisplayName("Pre-signed URL이 없는 경우 - S3 데이터 직접 읽기 불가 알림 포함 평가")
-    void processEvaluationAsync_WithoutPreSignedUrl_EvaluationWithWarning() throws Exception {
+    void processEvaluation_WithoutPreSignedUrl_EvaluationWithWarning() throws Exception {
         // Given - Pre-signed URL이 없는 경우
         MissionCompletedEvent eventWithoutPreSignedUrl = createEventWithoutPreSignedUrl();
         
         when(aiEvaluationRepository.existsByMissionAttemptId("no-presigned-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(missionTempSaveService.getTempSave("no-presigned-123")).thenReturn(Optional.empty());
         
         // Pre-signed URL 없이도 기본 평가는 수행
         when(geminiEvaluationService.evaluateCode(
@@ -165,7 +160,7 @@ class S3DataIntegrationEvaluationServiceTest {
         when(objectMapper.writeValueAsString(s3BasedResult)).thenReturn("{\"overallScore\":75}");
 
         // When
-        evaluationService.processEvaluationAsync(eventWithoutPreSignedUrl);
+        evaluationService.processEvaluation(eventWithoutPreSignedUrl);
 
         // Then - Pre-signed URL이 null로 전달되어 S3 데이터 읽기 불가 상황 처리
         verify(geminiEvaluationService).evaluateCode(
