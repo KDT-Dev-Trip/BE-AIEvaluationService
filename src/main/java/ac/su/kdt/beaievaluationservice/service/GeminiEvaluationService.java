@@ -9,11 +9,16 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.HttpClientErrorException;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import ac.su.kdt.beaievaluationservice.kafka.event.MissionCompletedEvent;
@@ -36,6 +41,18 @@ public class GeminiEvaluationService {
     
     @Value("${gemini.api.url:https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent}")
     private String geminiApiUrl;
+    
+    @Value("${gemini.api.retry.max-attempts:3}")
+    private int maxRetryAttempts;
+    
+    @Value("${gemini.api.retry.delay-seconds:2}")
+    private int retryDelaySeconds;
+    
+    @Value("${gemini.api.timeout.connect-seconds:30}")
+    private int connectTimeoutSeconds;
+    
+    @Value("${gemini.api.timeout.read-seconds:120}")
+    private int readTimeoutSeconds;
 
     /**
      * 새로운 평가 방식: 미션 목표, S3 URL, 통계 정보를 포함하여 종합적 평가 수행
@@ -51,10 +68,27 @@ public class GeminiEvaluationService {
             String s3Data = null;
             if (s3PreSignedUrl != null && !s3PreSignedUrl.isEmpty() && mockS3DataService != null) {
                 try {
+                    log.info("Attempting to read S3 mock data from URL: {}", s3PreSignedUrl.substring(0, Math.min(100, s3PreSignedUrl.length())));
                     s3Data = mockS3DataService.readS3DataByPreSignedUrl(s3PreSignedUrl);
-                    log.info("Successfully read S3 mock data for evaluation");
+                    
+                    if (s3Data != null && !s3Data.trim().isEmpty()) {
+                        log.info("Successfully read S3 mock data for evaluation, size: {} characters", s3Data.length());
+                    } else {
+                        log.warn("S3 mock data is null or empty");
+                        s3Data = null;
+                    }
+                } catch (IllegalArgumentException e) {
+                    log.warn("Invalid S3 Pre-Signed URL format: {}", e.getMessage());
+                    s3Data = null;
                 } catch (Exception e) {
-                    log.warn("Failed to read S3 mock data, proceeding without it", e);
+                    log.warn("Failed to read S3 mock data, proceeding without it. Error: {} - {}", e.getClass().getSimpleName(), e.getMessage());
+                    s3Data = null;
+                }
+            } else {
+                if (s3PreSignedUrl == null || s3PreSignedUrl.isEmpty()) {
+                    log.debug("No S3 Pre-Signed URL provided");
+                } else if (mockS3DataService == null) {
+                    log.debug("MockS3DataService not available");
                 }
             }
             
@@ -65,9 +99,13 @@ public class GeminiEvaluationService {
             
             return parseGeminiResponse(geminiResponse);
             
+        } catch (RuntimeException e) {
+            // RuntimeException은 이미 적절히 처리된 예외이므로 그대로 전파
+            log.error("RuntimeException during evaluation for missionId: {}", missionId, e);
+            throw e;
         } catch (Exception e) {
-            log.error("Failed to evaluate code with Gemini API for missionId: {}", missionId, e);
-            throw new RuntimeException("Gemini API evaluation failed", e);
+            log.error("Unexpected error during evaluation for missionId: {}", missionId, e);
+            throw new RuntimeException("Evaluation process failed: " + e.getMessage(), e);
         }
     }
     
@@ -358,67 +396,151 @@ public class GeminiEvaluationService {
     }
     
     private String callGeminiApi(String prompt) {
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            
-            Map<String, Object> requestBody = new HashMap<>();
-            Map<String, Object> content = new HashMap<>();
-            Map<String, String> part = new HashMap<>();
-            part.put("text", prompt);
-            content.put("parts", List.of(part));
-            requestBody.put("contents", List.of(content));
-            
-            Map<String, Object> generationConfig = new HashMap<>();
-            generationConfig.put("temperature", 0.3);
-            generationConfig.put("topP", 0.8);
-            generationConfig.put("maxOutputTokens", 2048);
-            requestBody.put("generationConfig", generationConfig);
-            
-            String url = geminiApiUrl + "?key=" + geminiApiKey;
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
-            
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
-            
-            if (response.getStatusCode() == HttpStatus.OK) {
-                return response.getBody();
-            } else {
-                throw new RuntimeException("Gemini API call failed with status: " + response.getStatusCode());
+        Exception lastException = null;
+        
+        for (int attempt = 1; attempt <= maxRetryAttempts; attempt++) {
+            try {
+                log.info("Calling Gemini API - attempt {}/{}", attempt, maxRetryAttempts);
+                
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_JSON);
+                
+                Map<String, Object> requestBody = new HashMap<>();
+                Map<String, Object> content = new HashMap<>();
+                Map<String, String> part = new HashMap<>();
+                part.put("text", prompt);
+                content.put("parts", List.of(part));
+                requestBody.put("contents", List.of(content));
+                
+                Map<String, Object> generationConfig = new HashMap<>();
+                generationConfig.put("temperature", 0.3);
+                generationConfig.put("topP", 0.8);
+                generationConfig.put("maxOutputTokens", 2048);
+                requestBody.put("generationConfig", generationConfig);
+                
+                String url = geminiApiUrl + "?key=" + geminiApiKey;
+                HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
+                
+                ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
+                
+                if (response.getStatusCode() == HttpStatus.OK) {
+                    log.info("Gemini API call successful on attempt {}", attempt);
+                    return response.getBody();
+                } else {
+                    throw new RuntimeException("Gemini API call failed with status: " + response.getStatusCode());
+                }
+                
+            } catch (ResourceAccessException e) {
+                lastException = e;
+                log.warn("Gemini API timeout/connection error on attempt {}/{}: {}", attempt, maxRetryAttempts, e.getMessage());
+                
+            } catch (HttpServerErrorException e) {
+                lastException = e;
+                log.warn("Gemini API server error on attempt {}/{}: {} - {}", attempt, maxRetryAttempts, e.getStatusCode(), e.getMessage());
+                
+            } catch (HttpClientErrorException e) {
+                // 클라이언트 에러는 재시도하지 않음 (API 키 문제, 잘못된 요청 등)
+                log.error("Gemini API client error (not retrying): {} - {}", e.getStatusCode(), e.getMessage());
+                throw new RuntimeException("Gemini API client error: " + e.getStatusCode() + " - " + e.getMessage(), e);
+                
+            } catch (Exception e) {
+                lastException = e;
+                log.warn("Gemini API unexpected error on attempt {}/{}: {}", attempt, maxRetryAttempts, e.getMessage());
             }
             
-        } catch (Exception e) {
-            log.error("Error calling Gemini API", e);
-            throw new RuntimeException("Failed to call Gemini API", e);
+            // 마지막 시도가 아니면 잠시 대기
+            if (attempt < maxRetryAttempts) {
+                try {
+                    long delayMs = retryDelaySeconds * 1000L * attempt; // 점진적 백오프
+                    log.info("Waiting {}ms before retry...", delayMs);
+                    Thread.sleep(delayMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Retry interrupted", ie);
+                }
+            }
         }
+        
+        log.error("All Gemini API attempts failed after {} tries", maxRetryAttempts);
+        throw new RuntimeException("Failed to call Gemini API after " + maxRetryAttempts + " attempts", lastException);
     }
     
     private EvaluationResultDTO parseGeminiResponse(String geminiResponse) {
+        if (geminiResponse == null || geminiResponse.trim().isEmpty()) {
+            log.error("Gemini response is null or empty");
+            return createFallbackResult("Empty API response");
+        }
+        
         try {
+            log.debug("Parsing Gemini response: {}", geminiResponse.substring(0, Math.min(500, geminiResponse.length())));
+            
             JsonNode responseJson = objectMapper.readTree(geminiResponse);
-            String content = responseJson
-                .path("candidates")
-                .get(0)
-                .path("content")
-                .path("parts")
-                .get(0)
-                .path("text")
-                .asText();
+            
+            // API 응답 구조 검증
+            if (!responseJson.has("candidates")) {
+                log.error("Gemini response missing 'candidates' field");
+                return createFallbackResult("Invalid API response structure");
+            }
+            
+            JsonNode candidates = responseJson.path("candidates");
+            if (!candidates.isArray() || candidates.size() == 0) {
+                log.error("Gemini response has no candidates");
+                return createFallbackResult("No candidates in API response");
+            }
+            
+            JsonNode firstCandidate = candidates.get(0);
+            if (!firstCandidate.has("content")) {
+                log.error("First candidate missing 'content' field");
+                return createFallbackResult("Invalid candidate structure");
+            }
+            
+            JsonNode content = firstCandidate.path("content");
+            if (!content.has("parts")) {
+                log.error("Content missing 'parts' field");
+                return createFallbackResult("Invalid content structure");
+            }
+            
+            JsonNode parts = content.path("parts");
+            if (!parts.isArray() || parts.size() == 0) {
+                log.error("Content has no parts");
+                return createFallbackResult("No parts in content");
+            }
+            
+            String textContent = parts.get(0).path("text").asText();
+            if (textContent.isEmpty()) {
+                log.error("Text content is empty");
+                return createFallbackResult("Empty text content");
+            }
             
             // JSON 부분만 추출 (마크다운 형태로 감싸져 있을 수 있음)
-            String jsonContent = extractJsonFromResponse(content);
+            String jsonContent = extractJsonFromResponse(textContent);
+            if (jsonContent.isEmpty()) {
+                log.error("No JSON content found in response");
+                return createFallbackResult("No JSON found in response");
+            }
+            
+            // JSON 파싱 시도
+            JsonNode parsedJson;
+            try {
+                parsedJson = objectMapper.readTree(jsonContent);
+            } catch (Exception jsonEx) {
+                log.error("Failed to parse extracted JSON: {}", jsonContent.substring(0, Math.min(200, jsonContent.length())), jsonEx);
+                return createFallbackResult("Invalid JSON format: " + jsonEx.getMessage());
+            }
             
             // 새로운 DevOps 채점관 형식인지 확인
-            JsonNode parsedJson = objectMapper.readTree(jsonContent);
             if (parsedJson.has("total_score")) {
+                log.info("Parsing DevOps evaluation response format");
                 return parseDevOpsEvaluationResponse(parsedJson);
             } else {
+                log.info("Parsing legacy evaluation response format");
                 // 기존 형식으로 파싱
                 return objectMapper.readValue(jsonContent, EvaluationResultDTO.class);
             }
             
         } catch (Exception e) {
-            log.error("Failed to parse Gemini response", e);
-            return createFallbackResult();
+            log.error("Failed to parse Gemini response - Full response: {}", geminiResponse, e);
+            return createFallbackResult("Parsing error: " + e.getMessage());
         }
     }
     
@@ -632,6 +754,36 @@ public class GeminiEvaluationService {
     }
     
     private String extractJsonFromResponse(String content) {
+        if (content == null || content.trim().isEmpty()) {
+            return "";
+        }
+        
+        // 다양한 JSON 형식 처리
+        String[] patterns = {
+            // 마크다운 코드 블록
+            "```json\\s*(.*)\\s*```",
+            "```\\s*(.*)\\s*```",
+            // 일반적인 JSON
+            "(\\{.*\\})"
+        };
+        
+        for (String pattern : patterns) {
+            try {
+                java.util.regex.Pattern p = java.util.regex.Pattern.compile(pattern, java.util.regex.Pattern.DOTALL);
+                java.util.regex.Matcher m = p.matcher(content);
+                if (m.find()) {
+                    String extracted = m.group(1).trim();
+                    if (!extracted.isEmpty() && extracted.startsWith("{")) {
+                        log.debug("Extracted JSON using pattern: {}", pattern);
+                        return extracted;
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("Failed to extract JSON with pattern {}: {}", pattern, e.getMessage());
+            }
+        }
+        
+        // 패턴 매칭 실패 시 기본 방식 사용
         int jsonStart = content.indexOf("{");
         int jsonEnd = content.lastIndexOf("}") + 1;
         
@@ -639,15 +791,22 @@ public class GeminiEvaluationService {
             return content.substring(jsonStart, jsonEnd);
         }
         
-        return content;
+        log.warn("No JSON structure found in content: {}", content.substring(0, Math.min(200, content.length())));
+        return "";
     }
     
     private EvaluationResultDTO createFallbackResult() {
+        return createFallbackResult("Unknown error");
+    }
+    
+    private EvaluationResultDTO createFallbackResult(String errorReason) {
+        log.warn("Creating fallback result due to: {}", errorReason);
+        
         // AI 평가 중 오류 발생 시 대체 결과
         EvaluationResultDTO result = new EvaluationResultDTO();
         result.setOverallScore(50);
-        result.setFeedback("AI 평가 중 오류가 발생했습니다. 자동 평가가 완료되지 못했지만, 제출하신 코드는 저장되었습니다. 담당자가 수동으로 검토 후 별도 안내드릴 예정입니다.");
-        result.setDetailedAnalysis("시스템 오류로 인해 상세 분석을 완료하지 못했습니다. 기술 팀에서 이슈를 확인 중이며, 빠른 시일 내에 정확한 평가 결과를 제공하겠습니다.");
+        result.setFeedback(String.format("AI 평가 중 오류가 발생했습니다 (%s). 자동 평가가 완료되지 못했지만, 제출하신 코드는 저장되었습니다. 담당자가 수동으로 검토 후 별도 안내드릴 예정입니다.", errorReason));
+        result.setDetailedAnalysis(String.format("시스템 오류로 인해 상세 분석을 완료하지 못했습니다 (오류: %s). 기술 팀에서 이슈를 확인 중이며, 빠른 시일 내에 정확한 평가 결과를 제공하겠습니다.", errorReason));
         
         EvaluationResultDTO.CodeQualityScore codeQuality = new EvaluationResultDTO.CodeQualityScore();
         codeQuality.setScore(50);

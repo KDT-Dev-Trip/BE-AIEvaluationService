@@ -1,0 +1,17 @@
+apiVersion: v2
+name: be-ai-evaluation-service
+description: AI 코드 평가 서비스 - DevOps 실습 결과를 AI로 자동 평가하는 백엔드 서비스
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - ai
+  - evaluation
+  - devops
+  - microservice
+home: https://github.com/devtrip-project/BE-AI-evaluation-service
+sources:
+  - https://github.com/devtrip-project/BE-AI-evaluation-service
+maintainers:
+  - name: DevTrip Team
+    email: devtrip@example.com

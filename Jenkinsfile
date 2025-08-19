@@ -2,266 +2,130 @@ pipeline {
     agent any
     
     environment {
-        DOCKER_REGISTRY = 'your-registry.com'  // Replace with your registry
-        IMAGE_NAME = 'be-ai-evaluation-service'
-        DOCKER_REPO = "${DOCKER_REGISTRY}/${IMAGE_NAME}"
-        GIT_REPO_MANIFESTS = 'https://github.com/your-org/k8s-manifests.git'  // Replace with your manifests repo
-        GIT_BRANCH = 'main'
-        
-        // Docker Hub credentials (configure in Jenkins)
-        DOCKER_CREDENTIALS = credentials('docker-hub-credentials')
-        GIT_CREDENTIALS = credentials('git-credentials')
-        
-        // SonarQube
-        SONAR_SCANNER_HOME = tool 'SonarQubeScanner'
-        SONAR_PROJECT_KEY = 'be-ai-evaluation-service'
+        DOCKER_REGISTRY = 'your-registry.com'
+        DOCKER_IMAGE_NAME = 'be-ai-evaluation-service'
+        DOCKER_TAG = "${BUILD_NUMBER}"
+        K8S_NAMESPACE = 'devtrip'
+        K8S_DEPLOYMENT_NAME = 'be-ai-evaluation-service'
+        HELM_CHART_PATH = './helm'
+        HELM_RELEASE_NAME = 'ai-evaluation'
+        DEV_NAMESPACE = 'devtrip-dev'
+        STAGING_NAMESPACE = 'devtrip-staging'
+        PROD_NAMESPACE = 'devtrip-prod'
+        DOCKER_REGISTRY_CREDENTIALS = 'docker-registry-credentials'
+        K8S_CREDENTIALS = 'k8s-credentials'
+        GEMINI_API_KEY_CREDENTIALS = 'gemini-api-key'
+        AWS_CREDENTIALS = 'aws-credentials'
     }
     
-    tools {
-        jdk 'JDK-17'
-        gradle 'Gradle-8'
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        disableConcurrentBuilds()
+        timeout(time: 30, unit: 'MINUTES')
     }
     
     stages {
         stage('Checkout') {
             steps {
+                echo '=== Git Repository Checkout ==='
                 checkout scm
                 script {
-                    env.GIT_COMMIT = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
-                    env.SHORT_COMMIT = env.GIT_COMMIT.take(8)
-                    env.BUILD_TAG = "${env.BUILD_NUMBER}-${env.SHORT_COMMIT}"
-                    env.IMAGE_TAG = "${env.DOCKER_REPO}:${env.BUILD_TAG}"
-                    env.IMAGE_LATEST = "${env.DOCKER_REPO}:latest"
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: 'git rev-parse --short HEAD',
+                        returnStdout: true
+                    ).trim()
+                    env.DOCKER_TAG_WITH_COMMIT = "${BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
                 }
             }
         }
         
         stage('Build & Test') {
+            steps {
+                echo '=== Java Compilation & Tests ==='
+                sh './gradlew clean compileJava test --info'
+                publishTestResults testResultsPattern: 'build/test-results/**/*.xml'
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'build/libs/*.jar', fingerprint: true
+                }
+            }
+        }
+        
+        stage('Docker Build & Push') {
+            steps {
+                echo '=== Docker Build & Push ==='
+                script {
+                    withCredentials([usernamePassword(
+                        credentialsId: env.DOCKER_REGISTRY_CREDENTIALS,
+                        usernameVariable: 'REGISTRY_USERNAME',
+                        passwordVariable: 'REGISTRY_PASSWORD'
+                    )]) {
+                        def imageTag = "${DOCKER_REGISTRY}/${DOCKER_IMAGE_NAME}:${env.DOCKER_TAG_WITH_COMMIT}"
+                        sh "docker build -t ${imageTag} ."
+                        sh "docker push ${imageTag}"
+                        env.DOCKER_IMAGE_FULL_TAG = imageTag
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy') {
             parallel {
-                stage('Gradle Build') {
+                stage('Deploy to Dev') {
+                    when { branch 'develop' }
                     steps {
-                        sh '''
-                            ./gradlew clean build --no-daemon
-                            ./gradlew test --no-daemon
-                        '''
-                    }
-                    post {
-                        always {
-                            publishTestResults testResultsPattern: 'build/test-results/test/*.xml'
-                            publishHTML([
-                                allowMissing: false,
-                                alwaysLinkToLastBuild: true,
-                                keepAll: true,
-                                reportDir: 'build/reports/tests/test',
-                                reportFiles: 'index.html',
-                                reportName: 'Test Report'
-                            ])
-                        }
+                        deployToEnvironment('dev', env.DEV_NAMESPACE)
                     }
                 }
-                
-                stage('Code Quality') {
+                stage('Deploy to Staging') {
+                    when { branch 'main' }
                     steps {
-                        script {
-                            withSonarQubeEnv('SonarQube') {
-                                sh """
-                                    ${SONAR_SCANNER_HOME}/bin/sonar-scanner \
-                                    -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
-                                    -Dsonar.sources=src/main/java \
-                                    -Dsonar.tests=src/test/java \
-                                    -Dsonar.java.binaries=build/classes \
-                                    -Dsonar.junit.reportPaths=build/test-results/test/*.xml \
-                                    -Dsonar.jacoco.reportPaths=build/jacoco/test.exec
-                                """
-                            }
-                        }
+                        deployToEnvironment('staging', env.STAGING_NAMESPACE)
                     }
                 }
             }
         }
         
-        stage('Quality Gate') {
-            steps {
-                timeout(time: 5, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: true
-                }
-            }
-        }
-        
-        stage('Security Scan') {
-            parallel {
-                stage('Dependency Check') {
-                    steps {
-                        sh './gradlew dependencyCheckAnalyze --no-daemon'
-                    }
-                    post {
-                        always {
-                            publishHTML([
-                                allowMissing: false,
-                                alwaysLinkToLastBuild: true,
-                                keepAll: true,
-                                reportDir: 'build/reports',
-                                reportFiles: 'dependency-check-report.html',
-                                reportName: 'Dependency Check Report'
-                            ])
-                        }
-                    }
-                }
-                
-                stage('Trivy Scan') {
-                    steps {
-                        sh '''
-                            # Install trivy if not available
-                            if ! command -v trivy &> /dev/null; then
-                                wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-                                echo "deb https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee -a /etc/apt/sources.list
-                                sudo apt-get update
-                                sudo apt-get install trivy
-                            fi
-                            
-                            # Scan filesystem
-                            trivy fs --exit-code 0 --severity HIGH,CRITICAL --format table .
-                        '''
-                    }
-                }
-            }
-        }
-        
-        stage('Build Docker Image') {
-            steps {
-                script {
-                    docker.withRegistry('', 'docker-hub-credentials') {
-                        def image = docker.build("${env.IMAGE_TAG}")
-                        
-                        // Security scan on built image
-                        sh "trivy image --exit-code 0 --severity HIGH,CRITICAL ${env.IMAGE_TAG}"
-                        
-                        // Push images
-                        image.push()
-                        image.push('latest')
-                    }
-                }
-            }
-        }
-        
-        stage('Update Manifests') {
-            steps {
-                script {
-                    // Clone manifests repository
-                    sh """
-                        rm -rf k8s-manifests
-                        git clone ${GIT_REPO_MANIFESTS} k8s-manifests
-                        cd k8s-manifests
-                        
-                        # Update image tag in deployment manifest
-                        sed -i 's|image: .*|image: ${env.IMAGE_TAG}|g' manifests/deployment.yaml
-                        
-                        # Commit and push changes
-                        git config user.name "Jenkins CI"
-                        git config user.email "jenkins@yourdomain.com"
-                        git add manifests/deployment.yaml
-                        git commit -m "Update image to ${env.IMAGE_TAG} - Build ${env.BUILD_NUMBER}"
-                        git push origin ${GIT_BRANCH}
-                    """
-                }
-            }
-        }
-        
-        stage('Deploy to Staging') {
-            when {
-                branch 'develop'
-            }
-            steps {
-                script {
-                    // Trigger ArgoCD sync for staging
-                    sh """
-                        # Install ArgoCD CLI if not available
-                        if ! command -v argocd &> /dev/null; then
-                            curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-                            chmod +x /usr/local/bin/argocd
-                        fi
-                        
-                        # Login and sync
-                        argocd login ${ARGOCD_SERVER} --username ${ARGOCD_USERNAME} --password ${ARGOCD_PASSWORD} --insecure
-                        argocd app sync be-ai-evaluation-service-staging
-                        argocd app wait be-ai-evaluation-service-staging --timeout 600
-                    """
-                }
-            }
-        }
-        
-        stage('Deploy to Production') {
-            when {
-                branch 'main'
-            }
-            steps {
-                input message: 'Deploy to Production?', ok: 'Deploy'
-                script {
-                    // Trigger ArgoCD sync for production
-                    sh """
-                        argocd login ${ARGOCD_SERVER} --username ${ARGOCD_USERNAME} --password ${ARGOCD_PASSWORD} --insecure
-                        argocd app sync be-ai-evaluation-service-prod
-                        argocd app wait be-ai-evaluation-service-prod --timeout 600
-                    """
-                }
-            }
-        }
     }
     
     post {
         always {
-            // Archive artifacts
-            archiveArtifacts artifacts: 'build/libs/*.jar', fingerprint: true
-            
-            // Clean workspace
             cleanWs()
         }
-        
         success {
-            script {
-                if (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'develop') {
-                    slackSend(
-                        channel: '#deployments',
-                        color: 'good',
-                        message: """
-                        ✅ *Deployment Successful*
-                        *Project:* ${env.JOB_NAME}
-                        *Branch:* ${env.BRANCH_NAME}
-                        *Build:* ${env.BUILD_NUMBER}
-                        *Image:* ${env.IMAGE_TAG}
-                        *Duration:* ${currentBuild.durationString}
-                        """
-                    )
-                }
-            }
+            echo 'Pipeline completed successfully'
         }
-        
         failure {
-            slackSend(
-                channel: '#deployments',
-                color: 'danger',
-                message: """
-                ❌ *Deployment Failed*
-                *Project:* ${env.JOB_NAME}
-                *Branch:* ${env.BRANCH_NAME}
-                *Build:* ${env.BUILD_NUMBER}
-                *Duration:* ${currentBuild.durationString}
-                *Console:* ${env.BUILD_URL}console
-                """
-            )
+            echo 'Pipeline failed'
+        }
+    }
+}
+
+def deployToEnvironment(String environment, String namespace) {
+    withCredentials([kubeconfigFile(credentialsId: env.K8S_CREDENTIALS, variable: 'KUBECONFIG')]) {
+        sh "kubectl create namespace ${namespace} --dry-run=client -o yaml | kubectl apply -f -"
+        
+        withCredentials([
+            string(credentialsId: env.GEMINI_API_KEY_CREDENTIALS, variable: 'GEMINI_API_KEY'),
+            usernamePassword(credentialsId: env.AWS_CREDENTIALS, usernameVariable: 'AWS_ACCESS_KEY', passwordVariable: 'AWS_SECRET_KEY')
+        ]) {
+            sh """
+            kubectl create secret generic ai-evaluation-secrets \\
+                --from-literal=gemini-api-key='${GEMINI_API_KEY}' \\
+                --from-literal=aws-access-key='${AWS_ACCESS_KEY}' \\
+                --from-literal=aws-secret-key='${AWS_SECRET_KEY}' \\
+                -n ${namespace} \\
+                --dry-run=client -o yaml | kubectl apply -f -
+            """
         }
         
-        unstable {
-            slackSend(
-                channel: '#deployments',
-                color: 'warning',
-                message: """
-                ⚠️ *Deployment Unstable*
-                *Project:* ${env.JOB_NAME}
-                *Branch:* ${env.BRANCH_NAME}
-                *Build:* ${env.BUILD_NUMBER}
-                """
-            )
-        }
+        sh """
+        helm upgrade --install ${env.HELM_RELEASE_NAME}-${environment} ${env.HELM_CHART_PATH} \\
+            --namespace ${namespace} \\
+            --set image.tag=${env.DOCKER_TAG_WITH_COMMIT} \\
+            --set image.repository=${DOCKER_REGISTRY}/${DOCKER_IMAGE_NAME} \\
+            --wait --timeout=10m
+        """
     }
 }

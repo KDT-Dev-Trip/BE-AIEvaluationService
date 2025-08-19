@@ -1,0 +1,174 @@
+# Default values for be-ai-evaluation-service.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 2
+
+image:
+  repository: be-ai-evaluation-service
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8084
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: ai-evaluation.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+livenessProbe:
+  httpGet:
+    path: /actuator/health
+    port: http
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /actuator/health/readiness
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Additional volumes on the output Deployment definition.
+volumes: []
+# - name: foo
+#   secret:
+#     secretName: mysecret
+#     optional: false
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts: []
+# - name: foo
+#   mountPath: "/etc/foo"
+#   readOnly: true
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Environment variables
+env:
+  - name: SPRING_PROFILES_ACTIVE
+    value: "prod"
+  - name: GEMINI_API_KEY
+    valueFrom:
+      secretRef:
+        name: ai-evaluation-secrets
+        key: gemini-api-key
+  - name: AWS_ACCESS_KEY
+    valueFrom:
+      secretRef:
+        name: ai-evaluation-secrets
+        key: aws-access-key
+  - name: AWS_SECRET_KEY
+    valueFrom:
+      secretRef:
+        name: ai-evaluation-secrets
+        key: aws-secret-key
+  - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+    value: "kafka:9092"
+
+# Kafka configuration
+kafka:
+  enabled: true
+  bootstrapServers: "kafka:9092"
+  
+# ConfigMap for application properties
+configMap:
+  enabled: true
+  data:
+    application-prod.properties: |
+      # Production configuration
+      server.port=8084
+      
+      # Database Configuration - PostgreSQL for production
+      spring.datasource.url=jdbc:postgresql://postgres:5432/ai_evaluation_db
+      spring.datasource.driver-class-name=org.postgresql.Driver
+      spring.datasource.username=${DB_USERNAME:ai_eval_user}
+      spring.datasource.password=${DB_PASSWORD:ai_eval_password}
+      spring.jpa.database-platform=org.hibernate.dialect.PostgreSQLDialect
+      spring.jpa.hibernate.ddl-auto=validate
+      spring.jpa.show-sql=false
+      
+      # Logging configuration
+      logging.level.ac.su.kdt.beaievaluationservice=INFO
+      logging.level.org.springframework.kafka=WARN
+      logging.pattern.console=%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n
+      
+      # Actuator endpoints
+      management.endpoints.web.exposure.include=health,info,metrics,prometheus
+      management.endpoint.health.show-details=when-authorized
+
+# Secret for sensitive configuration
+secrets:
+  enabled: true
+  data:
+    gemini-api-key: ""  # To be set during deployment
+    aws-access-key: ""  # To be set during deployment
+    aws-secret-key: ""  # To be set during deployment
