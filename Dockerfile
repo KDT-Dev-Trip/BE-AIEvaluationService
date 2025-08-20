@@ -8,7 +8,7 @@ COPY src ./src
 
 RUN gradle clean build -x test --no-daemon
 
-FROM openjdk:17-jre-slim
+FROM openjdk:26-trixie
 
 WORKDIR /app
 
