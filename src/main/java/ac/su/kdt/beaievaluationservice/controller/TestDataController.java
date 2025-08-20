@@ -13,6 +13,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.ResponseEntity;
 
@@ -31,7 +32,9 @@ public class TestDataController {
     private final AIEvaluationRepository aiEvaluationRepository;
     private final EvaluationSummaryRepository evaluationSummaryRepository;
     private final EvaluationHistoryRepository evaluationHistoryRepository;
-    private final ac.su.kdt.beaievaluationservice.service.MockS3DataService mockS3DataService;
+    
+    @Autowired(required = false)
+    private ac.su.kdt.beaievaluationservice.service.MockS3DataService mockS3DataService;
 
     /**
      * 시스템 헬스 체크
@@ -346,6 +349,10 @@ public class TestDataController {
             @RequestParam(required = false) String preSignedUrl) {
         log.info("Testing mock S3 data retrieval");
 
+        if (mockS3DataService == null) {
+            return ResponseEntity.ok(ApiResponse.failure("S3 Mock Service is not available - S3 functionality is disabled"));
+        }
+
         try {
             // Pre-signed URL이 없으면 기본값 사용
             final String finalPreSignedUrl = (preSignedUrl == null || preSignedUrl.isEmpty()) 
@@ -379,6 +386,10 @@ public class TestDataController {
     @DeleteMapping("/mock-cache")
     public ResponseEntity<ApiResponse<String>> clearMockCache() {
         log.info("Clearing mock data cache");
+
+        if (mockS3DataService == null) {
+            return ResponseEntity.ok(ApiResponse.failure("S3 Mock Service is not available - S3 functionality is disabled"));
+        }
 
         try {
             mockS3DataService.clearCache();

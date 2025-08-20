@@ -4,6 +4,7 @@ import ac.su.kdt.beaievaluationservice.entity.MissionS3Storage;
 import ac.su.kdt.beaievaluationservice.repository.MissionS3StorageRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,7 +21,9 @@ import java.util.Optional;
 public class MissionS3StorageService {
     
     private final MissionS3StorageRepository missionS3StorageRepository;
-    private final S3PreSignedUrlService s3PreSignedUrlService;
+    
+    @Autowired(required = false)
+    private S3PreSignedUrlService s3PreSignedUrlService;
     
     /**
      * missionAttemptId로 S3 저장소 정보 조회
@@ -63,6 +66,11 @@ public class MissionS3StorageService {
      */
     public Optional<String> generatePreSignedUrl(String missionAttemptId) {
         log.info("Generating pre-signed URL for missionAttemptId: {}", missionAttemptId);
+        
+        if (s3PreSignedUrlService == null) {
+            log.warn("S3PreSignedUrlService is not available - S3 functionality is disabled");
+            return Optional.empty();
+        }
         
         Optional<MissionS3Storage> storageInfo = missionS3StorageRepository.findByMissionAttemptId(missionAttemptId);
         
@@ -139,5 +147,12 @@ public class MissionS3StorageService {
      */
     public boolean hasS3StorageInfo(String missionAttemptId) {
         return missionS3StorageRepository.existsByMissionAttemptId(missionAttemptId);
+    }
+    
+    /**
+     * S3 기능 사용 가능 여부 확인
+     */
+    public boolean isS3Enabled() {
+        return s3PreSignedUrlService != null;
     }
 }

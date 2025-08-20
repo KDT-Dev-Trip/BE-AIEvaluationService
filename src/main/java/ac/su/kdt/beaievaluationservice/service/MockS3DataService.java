@@ -3,6 +3,7 @@ package ac.su.kdt.beaievaluationservice.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
@@ -18,6 +19,7 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "aws.s3.enabled", havingValue = "false", matchIfMissing = false)
 public class MockS3DataService {
 
     private final ObjectMapper objectMapper;

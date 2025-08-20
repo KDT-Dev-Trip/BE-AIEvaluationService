@@ -3,6 +3,7 @@ package ac.su.kdt.beaievaluationservice.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -16,6 +17,7 @@ import java.net.URL;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "aws.s3.enabled", havingValue = "true", matchIfMissing = false)
 public class S3PreSignedUrlService {
     
     @Value("${aws.s3.region:ap-northeast-2}")
