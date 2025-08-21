@@ -35,7 +35,9 @@ dependencies {
     implementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.7.0'
     implementation 'me.paulschwarz:spring-dotenv:4.0.0'
-    runtimeOnly 'com.h2database:h2'
+    // Database Dependencies
+    runtimeOnly 'com.h2database:h2'  // Keep for development/testing
+    runtimeOnly 'mysql:mysql-connector-java:8.0.33'  // MySQL production database
     compileOnly 'org.projectlombok:lombok'
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
     annotationProcessor 'org.projectlombok:lombok'

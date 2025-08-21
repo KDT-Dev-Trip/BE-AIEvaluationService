@@ -1,0 +1,154 @@
+# MySQL Development Environment for AI Evaluation Service
+# AI 평가 서비스 MySQL 개발 환경 구성
+
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql-ai-eval:
+    image: mysql:8.0
+    container_name: ai-eval-mysql-dev
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password_dev
+      MYSQL_DATABASE: ai_evaluation_dev_db
+      MYSQL_USER: ai_eval_dev
+      MYSQL_PASSWORD: dev_password
+      MYSQL_ROOT_HOST: '%'
+    ports:
+      - "3307:3306"  # 로컬 MySQL과 충돌 방지를 위해 3307 포트 사용
+    volumes:
+      - mysql_ai_eval_data:/var/lib/mysql
+      - ./database_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./mysql-config/my.cnf:/etc/mysql/conf.d/my.cnf:ro
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    networks:
+      - ai-eval-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_password_dev"]
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # Redis for Caching (Optional)
+  redis-ai-eval:
+    image: redis:7-alpine
+    container_name: ai-eval-redis-dev
+    restart: unless-stopped
+    ports:
+      - "6380:6379"  # 로컬 Redis와 충돌 방지
+    volumes:
+      - redis_ai_eval_data:/data
+    networks:
+      - ai-eval-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      timeout: 3s
+      retries: 5
+
+  # Kafka for Event Streaming (개발용)
+  zookeeper-ai-eval:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: ai-eval-zookeeper-dev
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - ai-eval-network
+
+  kafka-ai-eval:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: ai-eval-kafka-dev
+    restart: unless-stopped
+    depends_on:
+      - zookeeper-ai-eval
+    ports:
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper-ai-eval:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-ai-eval:29092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    volumes:
+      - kafka_ai_eval_data:/var/lib/kafka/data
+    networks:
+      - ai-eval-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # AI Evaluation Service Application
+  ai-eval-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-eval-service-dev
+    restart: unless-stopped
+    depends_on:
+      mysql-ai-eval:
+        condition: service_healthy
+      kafka-ai-eval:
+        condition: service_healthy
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_PROFILES_ACTIVE: dev,mysql
+      MYSQL_HOST: mysql-ai-eval
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ai_evaluation_dev_db
+      MYSQL_USERNAME: ai_eval_dev
+      MYSQL_PASSWORD: dev_password
+      KAFKA_BOOTSTRAP_SERVERS: kafka-ai-eval:29092
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-test-key}
+      AWS_ACCESS_KEY: ${AWS_ACCESS_KEY:-mock-access-key}
+      AWS_SECRET_KEY: ${AWS_SECRET_KEY:-mock-secret-key}
+      REDIS_HOST: redis-ai-eval
+      REDIS_PORT: 6379
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - ai-eval-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/actuator/health"]
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Adminer for Database Management (Optional)
+  adminer:
+    image: adminer:4.8.1
+    container_name: ai-eval-adminer-dev
+    restart: unless-stopped
+    depends_on:
+      - mysql-ai-eval
+    ports:
+      - "8081:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: mysql-ai-eval
+      ADMINER_DESIGN: pepa-linha-dark
+    networks:
+      - ai-eval-network
+
+volumes:
+  mysql_ai_eval_data:
+    driver: local
+    name: ai_eval_mysql_data
+  redis_ai_eval_data:
+    driver: local
+    name: ai_eval_redis_data
+  kafka_ai_eval_data:
+    driver: local
+    name: ai_eval_kafka_data
+
+networks:
+  ai-eval-network:
+    driver: bridge
+    name: ai_eval_network
