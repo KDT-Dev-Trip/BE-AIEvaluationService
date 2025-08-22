@@ -19,25 +19,25 @@ public interface EvaluationSummaryRepository extends JpaRepository<EvaluationSum
     
     Optional<EvaluationSummary> findByMissionAttemptId(String missionAttemptId);
     
-    Page<EvaluationSummary> findByUserIdOrderByCreatedAtDesc(String userId, Pageable pageable);
+    Page<EvaluationSummary> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
     
-    List<EvaluationSummary> findByUserIdAndMissionIdOrderByCreatedAtDesc(String userId, String missionId);
+    List<EvaluationSummary> findByUserIdAndMissionIdOrderByCreatedAtDesc(Long userId, Long missionId);
     
     List<EvaluationSummary> findByStatus(AIEvaluation.EvaluationStatus status);
     
     @Query("SELECT es FROM EvaluationSummary es WHERE es.userId = :userId AND es.createdAt BETWEEN :startDate AND :endDate ORDER BY es.createdAt DESC")
     List<EvaluationSummary> findUserEvaluationsByDateRange(
-        @Param("userId") String userId, 
+        @Param("userId") Long userId, 
         @Param("startDate") LocalDateTime startDate, 
         @Param("endDate") LocalDateTime endDate
     );
     
     @Query("SELECT AVG(es.overallScore) FROM EvaluationSummary es WHERE es.userId = :userId AND es.status = 'COMPLETED'")
-    Double getAverageScoreByUserId(@Param("userId") String userId);
+    Double getAverageScoreByUserId(@Param("userId") Long userId);
     
     @Query("SELECT es FROM EvaluationSummary es WHERE es.userId = :userId AND es.overallScore >= :minScore AND es.status = 'COMPLETED'")
-    List<EvaluationSummary> findHighScoreEvaluations(@Param("userId") String userId, @Param("minScore") Integer minScore);
+    List<EvaluationSummary> findHighScoreEvaluations(@Param("userId") Long userId, @Param("minScore") Integer minScore);
 
-    List<EvaluationSummary> findByUserIdOrderByCreatedAtDesc(String userId);
+    List<EvaluationSummary> findByUserIdOrderByCreatedAtDesc(Long userId);
 
 }

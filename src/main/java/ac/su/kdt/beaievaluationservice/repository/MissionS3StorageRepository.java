@@ -25,5 +25,5 @@ public interface MissionS3StorageRepository extends JpaRepository<MissionS3Stora
     /**
      * userId로 해당 사용자의 S3 저장소 정보들 조회
      */
-    java.util.List<MissionS3Storage> findByUserId(String userId);
+    java.util.List<MissionS3Storage> findByUserId(Long userId);
 }

@@ -81,7 +81,7 @@ public class MissionS3StorageService {
                 // S3 버킷명과 객체 키를 사용하여 Pre-signed URL 발급
                 String preSignedUrl = s3PreSignedUrlService.generatePreSignedUrl(
                     storage.getBucketName(), 
-                    storage.getObjectKey()
+                    storage.getObjectKeyPrefix()
                 );
                 
                 log.info("Successfully generated pre-signed URL for missionAttemptId: {}", missionAttemptId);
@@ -122,17 +122,17 @@ public class MissionS3StorageService {
             storage = existingStorage.get();
             storage.setS3StorageUrl(s3StorageUrl);
             storage.setBucketName(bucketName);
-            storage.setObjectKey(objectKey);
+            storage.setObjectKeyPrefix(objectKey);
             log.info("Updated existing S3 storage info for missionAttemptId: {}", missionAttemptId);
         } else {
             // 새로운 정보 생성
             storage = new MissionS3Storage();
             storage.setMissionAttemptId(missionAttemptId);
-            storage.setUserId(userId);
-            storage.setMissionId(missionId);
+            storage.setUserId(Long.valueOf(userId));
+            storage.setMissionId(Long.valueOf(missionId));
             storage.setS3StorageUrl(s3StorageUrl);
             storage.setBucketName(bucketName);
-            storage.setObjectKey(objectKey);
+            storage.setObjectKeyPrefix(objectKey);
             log.info("Created new S3 storage info for missionAttemptId: {}", missionAttemptId);
         }
         

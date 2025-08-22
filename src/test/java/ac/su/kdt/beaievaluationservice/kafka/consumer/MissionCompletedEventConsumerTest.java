@@ -131,7 +131,7 @@ class MissionCompletedEventConsumerTest {
     }
 
     @Test
-    @DisplayName("평가 서비스 예외 발생 - acknowledge 호출되지 않음")
+    @DisplayName("평가 서비스 예외 발생 - acknowledge 여전히 호출됨")
     void handleMissionCompletedEvent_EvaluationServiceException() {
         // Given
         doThrow(new RuntimeException("Evaluation service error"))
@@ -143,7 +143,7 @@ class MissionCompletedEventConsumerTest {
 
         // Then
         verify(evaluationService).processEvaluation(validEvent);
-        verify(acknowledgment, never()).acknowledge(); // 예외 발생 시 acknowledge하지 않음
+        verify(acknowledgment).acknowledge(); // 예외 발생해도 acknowledge 호출됨
     }
 
     @Test

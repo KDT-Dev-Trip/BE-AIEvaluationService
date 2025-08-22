@@ -185,7 +185,7 @@ public class EvaluationController {
         log.info("Get evaluation history for userId: {}", userId);
 
         try {
-            List<EvaluationSummary> summaries = evaluationSummaryRepository.findByUserIdOrderByCreatedAtDesc(userId);
+            List<EvaluationSummary> summaries = evaluationSummaryRepository.findByUserIdOrderByCreatedAtDesc(Long.valueOf(userId));
             
             List<EvaluationResponse> responses = summaries.stream()
                     .map(this::convertSummaryToResponse)
@@ -528,7 +528,7 @@ public class EvaluationController {
         return EvaluationResponse.builder()
                 .evaluationId(summary.getAiEvaluation().getId())
                 .missionAttemptId(summary.getMissionAttemptId())
-                .userId(summary.getUserId())
+                .userId(String.valueOf(summary.getUserId()))
                 .status(summary.getStatus().name())
                 .overallScore(summary.getOverallScore())
                 .codeQualityScore(summary.getCodeQualityScore())

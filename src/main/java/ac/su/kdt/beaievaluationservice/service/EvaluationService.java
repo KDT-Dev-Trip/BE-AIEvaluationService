@@ -214,8 +214,8 @@ public class EvaluationService {
         
         try {
             EvaluationSummary summary = new EvaluationSummary();
-            summary.setUserId(event.getUserId());
-            summary.setMissionId(event.getMissionId());
+            summary.setUserId(Long.valueOf(event.getUserId()));
+            summary.setMissionId(Long.valueOf(event.getMissionId()));
             summary.setMissionAttemptId(event.getMissionAttemptId());
             summary.setMissionTitle(event.getMissionTitle());
             summary.setMissionType(event.getMissionType());

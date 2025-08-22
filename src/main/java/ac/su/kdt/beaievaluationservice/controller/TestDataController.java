@@ -211,7 +211,7 @@ public class TestDataController {
 
         try {
             // 평가 요약 데이터 삭제 (연관된 히스토리도 자동 삭제됨)
-            evaluationSummaryRepository.findByUserIdOrderByCreatedAtDesc(userId)
+            evaluationSummaryRepository.findByUserIdOrderByCreatedAtDesc(Long.valueOf(userId))
                     .forEach(evaluationSummaryRepository::delete);
 
             return ResponseEntity.ok(ApiResponse.success(userId + " 사용자의 데이터가 삭제되었습니다."));
