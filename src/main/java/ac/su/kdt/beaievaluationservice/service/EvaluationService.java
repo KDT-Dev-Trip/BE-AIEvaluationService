@@ -18,6 +18,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+
+import org.springframework.scheduling.annotation.Async;
 
 // AI 평가 서비스
 // 미션 완료 이벤트를 처리하여 AI 평가를 수행하고, 평가 결과를 데이터베이스에 저장
@@ -31,10 +34,37 @@ public class EvaluationService {
     private final EvaluationHistoryRepository evaluationHistoryRepository;
     private final GeminiEvaluationService geminiEvaluationService;
     private final EvaluationEventPublisher evaluationEventPublisher;
+    private final ac.su.kdt.beaievaluationservice.service.EvaluationEventPublisher newEvaluationEventPublisher;
     private final ObjectMapper objectMapper;
     
+    /**
+     * 동기식 평가 처리 메서드 (기존 호환성 유지)
+     */
     @Transactional
     public void processEvaluation(MissionCompletedEvent event) {
+        processEvaluationInternal(event);
+    }
+    
+    /**
+     * 비동기식 평가 처리 메서드 (새로운 방식)
+     * Kafka Consumer가 블로킹되지 않도록 비동기로 처리
+     */
+    @Async("evaluationTaskExecutor")
+    @Transactional
+    public CompletableFuture<Void> processEvaluationAsync(MissionCompletedEvent event) {
+        try {
+            processEvaluationInternal(event);
+            return CompletableFuture.completedFuture(null);
+        } catch (Exception e) {
+            log.error("Async evaluation failed for missionAttemptId: {}", event.getMissionAttemptId(), e);
+            return CompletableFuture.failedFuture(e);
+        }
+    }
+    
+    /**
+     * 실제 평가 처리 로직 (공통 부분)
+     */
+    private void processEvaluationInternal(MissionCompletedEvent event) {
         String missionAttemptId = event.getMissionAttemptId();
         LocalDateTime processingStartTime = LocalDateTime.now();
         
@@ -51,13 +81,37 @@ public class EvaluationService {
         }
 
         AIEvaluation evaluation = createInitialEvaluation(event);
+        
+        log.info("=== BEFORE SAVE DEBUG ===");
+        log.info("Evaluation before save - userId: {}, missionId: {}, missionAttemptId: {}", 
+                evaluation.getUserId(), evaluation.getMissionId(), evaluation.getMissionAttemptId());
+        
         evaluation = aiEvaluationRepository.save(evaluation);
+        
+        log.info("=== AFTER SAVE DEBUG ===");
+        log.info("Evaluation after save - userId: {}, missionId: {}, missionAttemptId: {}", 
+                evaluation.getUserId(), evaluation.getMissionId(), evaluation.getMissionAttemptId());
         
         recordStatusChange(evaluation, null, AIEvaluation.EvaluationStatus.PENDING, "Initial evaluation request");
         
         try {
             log.info("=== EVALUATION STATUS: PROCESSING ===");
             updateEvaluationStatus(evaluation, AIEvaluation.EvaluationStatus.PROCESSING, "Starting AI evaluation");
+            
+            // 🚀 실제 API 연동: 평가 시작 이벤트 발행
+            try {
+                newEvaluationEventPublisher.publishEvaluationStartedWithDefaults(
+                    evaluation.getId().toString(), 
+                    event.getMissionId(), 
+                    missionAttemptId, 
+                    Long.valueOf(event.getUserId())
+                ).get(); // 동기 처리로 확실한 발행 보장
+                
+                log.info("✅ Evaluation started event published successfully: evaluationId={}, missionId={}", 
+                    evaluation.getId(), event.getMissionId());
+            } catch (Exception e) {
+                log.warn("⚠️ Failed to publish evaluation started event, but evaluation continues: {}", e.getMessage());
+            }
             
             // S3 데이터 준비
             String s3StorageUrl = event.getS3StorageUrl();
@@ -89,6 +143,14 @@ public class EvaluationService {
             // 결과 저장 및 이벤트 발행
             completeEvaluation(evaluation, result, event, processingStartTime);
             
+        } catch (IllegalArgumentException e) {
+            log.error("=== EVALUATION VALIDATION ERROR ===");
+            log.error("Invalid input data for missionAttemptId: {} - Error: {}", missionAttemptId, e.getMessage(), e);
+            failEvaluationWithEvent(evaluation, event, "Invalid input data: " + e.getMessage());
+            
+            // 🚨 실제 API 연동: 평가 실패 이벤트 발행
+            publishEvaluationFailedEvent(evaluation, event, "VALIDATION_ERROR", "Invalid input data: " + e.getMessage(), 0);
+            
         } catch (RuntimeException e) {
             log.error("=== EVALUATION RUNTIME ERROR ===");
             log.error("Runtime error during evaluation for missionAttemptId: {} - Error: {}", missionAttemptId, e.getMessage(), e);
@@ -98,6 +160,9 @@ public class EvaluationService {
                 errorDetail += String.format(" (Caused by: %s)", e.getCause().getMessage());
             }
             failEvaluationWithEvent(evaluation, event, errorDetail);
+            
+            // 🚨 실제 API 연동: 평가 실패 이벤트 발행
+            publishEvaluationFailedEvent(evaluation, event, "RUNTIME_ERROR", e.getMessage(), 0);
             
         } catch (Exception e) {
             log.error("=== EVALUATION UNEXPECTED ERROR ===");
@@ -113,10 +178,23 @@ public class EvaluationService {
      * 초기 평가 객체 생성
      */
     private AIEvaluation createInitialEvaluation(MissionCompletedEvent event) {
+        log.info("=== createInitialEvaluation DEBUG ===");
+        log.info("Event userId: {}", event.getUserId());
+        log.info("Event missionId: {}", event.getMissionId());
+        log.info("Event missionAttemptId: {}", event.getMissionAttemptId());
+        
         AIEvaluation evaluation = new AIEvaluation();
         evaluation.setMissionAttemptId(event.getMissionAttemptId());
+        evaluation.setMissionId(event.getMissionId());  // String 타입으로 설정
+        evaluation.setUserId(Long.parseLong(event.getUserId()));        // String을 Long으로 변환
+        evaluation.setMissionType(event.getMissionType());
+        evaluation.setMissionTitle(event.getMissionTitle());
+        evaluation.setSubmittedCode(event.getCode());
         evaluation.setStatus(AIEvaluation.EvaluationStatus.PENDING);
         evaluation.setAiModelVersion("gemini-2.0-flash-exp");
+        
+        log.info("Evaluation object after setting - userId: {}, missionId: {}, missionAttemptId: {}", 
+                evaluation.getUserId(), evaluation.getMissionId(), evaluation.getMissionAttemptId());
         
         return evaluation;
     }
@@ -146,8 +224,11 @@ public class EvaluationService {
                     throw new IllegalStateException("Serialized JSON is null or empty");
                 }
                 log.debug("Evaluation result serialized successfully, size: {} characters", resultJson.length());
-            } catch (Exception jsonEx) {
+            } catch (com.fasterxml.jackson.core.JsonProcessingException jsonEx) {
                 log.error("Failed to serialize evaluation result to JSON for {}: {}", missionAttemptId, jsonEx.getMessage());
+                throw new RuntimeException("JSON serialization failed", jsonEx);
+            } catch (Exception jsonEx) {
+                log.error("Unexpected error during JSON serialization for {}: {}", missionAttemptId, jsonEx.getMessage());
                 throw new RuntimeException("JSON serialization failed", jsonEx);
             }
             
@@ -157,8 +238,11 @@ public class EvaluationService {
                 evaluation.setStatus(AIEvaluation.EvaluationStatus.COMPLETED);
                 evaluation = aiEvaluationRepository.save(evaluation);
                 log.info("Evaluation result saved successfully for {}", missionAttemptId);
+            } catch (org.springframework.dao.DataAccessException dbEx) {
+                log.error("Database access error while saving evaluation for {}: {}", missionAttemptId, dbEx.getMessage());
+                throw new RuntimeException("Database save failed", dbEx);
             } catch (Exception dbEx) {
-                log.error("Failed to save evaluation to database for {}: {}", missionAttemptId, dbEx.getMessage());
+                log.error("Unexpected database error while saving evaluation for {}: {}", missionAttemptId, dbEx.getMessage());
                 throw new RuntimeException("Database save failed", dbEx);
             }
             
@@ -167,8 +251,11 @@ public class EvaluationService {
                 log.info("=== CREATING EVALUATION SUMMARY ===");
                 createEvaluationSummary(evaluation, result, event);
                 log.info("Evaluation summary created successfully for {}", missionAttemptId);
+            } catch (IllegalArgumentException summaryEx) {
+                log.error("Invalid data for evaluation summary creation for {}: {}", missionAttemptId, summaryEx.getMessage());
+                // Summary 생성 실패는 전체 평가를 실패시키지 않음
             } catch (Exception summaryEx) {
-                log.error("Failed to create evaluation summary for {}: {}", missionAttemptId, summaryEx.getMessage());
+                log.error("Unexpected error creating evaluation summary for {}: {}", missionAttemptId, summaryEx.getMessage());
                 // Summary 생성 실패는 전체 평가를 실패시키지 않음
             }
             
@@ -176,8 +263,11 @@ public class EvaluationService {
             try {
                 recordStatusChange(evaluation, AIEvaluation.EvaluationStatus.PROCESSING, 
                                  AIEvaluation.EvaluationStatus.COMPLETED, "Evaluation completed successfully");
+            } catch (org.springframework.dao.DataAccessException historyEx) {
+                log.warn("Database error recording status change history for {}: {}", missionAttemptId, historyEx.getMessage());
+                // 이력 기록 실패는 전체 프로세스를 중단시키지 않음
             } catch (Exception historyEx) {
-                log.warn("Failed to record status change history for {}: {}", missionAttemptId, historyEx.getMessage());
+                log.warn("Unexpected error recording status change history for {}: {}", missionAttemptId, historyEx.getMessage());
                 // 이력 기록 실패는 전체 프로세스를 중단시키지 않음
             }
             
@@ -185,8 +275,11 @@ public class EvaluationService {
             try {
                 log.info("=== PUBLISHING EVALUATION COMPLETED EVENT ===");
                 publishEvaluationCompletedEvent(evaluation, result, event, processingStartTime);
+            } catch (org.springframework.kafka.KafkaException eventEx) {
+                log.error("Kafka error publishing evaluation completed event for {}: {}", missionAttemptId, eventEx.getMessage());
+                // 이벤트 발행 실패는 평가 자체를 실패시키지 않음
             } catch (Exception eventEx) {
-                log.error("Failed to publish evaluation completed event for {}: {}", missionAttemptId, eventEx.getMessage());
+                log.error("Unexpected error publishing evaluation completed event for {}: {}", missionAttemptId, eventEx.getMessage());
                 // 이벤트 발행 실패는 평가 자체를 실패시키지 않음
             }
             
@@ -214,8 +307,8 @@ public class EvaluationService {
         
         try {
             EvaluationSummary summary = new EvaluationSummary();
-            summary.setUserId(Long.valueOf(event.getUserId()));
-            summary.setMissionId(Long.valueOf(event.getMissionId()));
+            summary.setUserId(Long.parseLong(event.getUserId()));
+            summary.setMissionId(event.getMissionId());
             summary.setMissionAttemptId(event.getMissionAttemptId());
             summary.setMissionTitle(event.getMissionTitle());
             summary.setMissionType(event.getMissionType());
@@ -240,8 +333,14 @@ public class EvaluationService {
             evaluationSummaryRepository.save(summary);
             log.debug("Evaluation summary saved successfully for {}", event.getMissionAttemptId());
             
+        } catch (NumberFormatException e) {
+            log.error("Invalid number format in evaluation summary for {}: {}", event.getMissionAttemptId(), e.getMessage());
+            throw new RuntimeException("Failed to create evaluation summary", e);
+        } catch (org.springframework.dao.DataAccessException e) {
+            log.error("Database error creating evaluation summary for {}: {}", event.getMissionAttemptId(), e.getMessage());
+            throw new RuntimeException("Failed to create evaluation summary", e);
         } catch (Exception e) {
-            log.error("Error creating evaluation summary for {}: {}", event.getMissionAttemptId(), e.getMessage());
+            log.error("Unexpected error creating evaluation summary for {}: {}", event.getMissionAttemptId(), e.getMessage());
             throw new RuntimeException("Failed to create evaluation summary", e);
         }
     }
@@ -315,9 +414,14 @@ public class EvaluationService {
             log.info("=== KAFKA EVENT PUBLISHED SUCCESSFULLY ===");
             log.info("Evaluation completed event published for missionAttemptId: {}", event.getMissionAttemptId());
 
-        } catch (Exception e) {
+        } catch (org.springframework.kafka.KafkaException e) {
             log.error("=== KAFKA PUBLISH ERROR ===");
-            log.error("Failed to publish evaluation completed event for missionAttemptId: {}", 
+            log.error("Kafka error publishing evaluation completed event for missionAttemptId: {}", 
+                     event.getMissionAttemptId(), e);
+            // 이벤트 발행 실패는 전체 평가를 실패시키지 않음
+        } catch (Exception e) {
+            log.error("=== UNEXPECTED KAFKA ERROR ===");
+            log.error("Unexpected error publishing evaluation completed event for missionAttemptId: {}", 
                      event.getMissionAttemptId(), e);
             // 이벤트 발행 실패는 전체 평가를 실패시키지 않음
         }
@@ -338,8 +442,11 @@ public class EvaluationService {
                 errorMessage
             );
             log.info("Published evaluation failed event for missionAttemptId: {}", event.getMissionAttemptId());
+        } catch (org.springframework.kafka.KafkaException e) {
+            log.error("Kafka error publishing evaluation failed event for missionAttemptId: {}", 
+                     event.getMissionAttemptId(), e);
         } catch (Exception e) {
-            log.error("Failed to publish evaluation failed event for missionAttemptId: {}", 
+            log.error("Unexpected error publishing evaluation failed event for missionAttemptId: {}", 
                      event.getMissionAttemptId(), e);
         }
     }
@@ -361,20 +468,110 @@ public class EvaluationService {
             try {
                 aiEvaluationRepository.save(evaluation);
                 log.info("Failed evaluation status saved for {}", missionAttemptId);
+            } catch (org.springframework.dao.DataAccessException dbEx) {
+                log.error("Critical: Database error saving failure status for {}: {}", missionAttemptId, dbEx.getMessage());
+                // 이 경우에도 예외를 다시 던지지 않음 (무한 루프 방지)
             } catch (Exception dbEx) {
-                log.error("Critical: Failed to save failure status for {}: {}", missionAttemptId, dbEx.getMessage());
+                log.error("Critical: Unexpected error saving failure status for {}: {}", missionAttemptId, dbEx.getMessage());
                 // 이 경우에도 예외를 다시 던지지 않음 (무한 루프 방지)
             }
             
             try {
                 recordStatusChange(evaluation, AIEvaluation.EvaluationStatus.PROCESSING, 
                                  AIEvaluation.EvaluationStatus.FAILED, truncatedErrorMessage);
+            } catch (org.springframework.dao.DataAccessException historyEx) {
+                log.warn("Database error recording failure status change history for {}: {}", missionAttemptId, historyEx.getMessage());
             } catch (Exception historyEx) {
-                log.warn("Failed to record failure status change history for {}: {}", missionAttemptId, historyEx.getMessage());
+                log.warn("Unexpected error recording failure status change history for {}: {}", missionAttemptId, historyEx.getMessage());
             }
             
         } catch (Exception e) {
             log.error("Critical error while failing evaluation for {}: {}", missionAttemptId, e.getMessage());
+        }
+    }
+
+    /**
+     * 평가 실패 이벤트 발행 헬퍼
+     */
+    private void publishEvaluationFailedEvent(AIEvaluation evaluation, MissionCompletedEvent event, 
+                                             String errorCode, String errorMessage, Integer retryAttempt) {
+        try {
+            newEvaluationEventPublisher.publishEvaluationFailedWithDefaults(
+                evaluation.getId().toString(), 
+                event.getMissionId(), 
+                event.getMissionAttemptId(), 
+                Long.valueOf(event.getUserId()),
+                errorMessage,
+                retryAttempt
+            ).get();
+            
+            log.info("✅ Evaluation failed event published successfully: evaluationId={}, errorCode={}", 
+                evaluation.getId(), errorCode);
+        } catch (Exception e) {
+            log.warn("⚠️ Failed to publish evaluation failed event: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 평가 재시도 요청 이벤트 발행 헬퍼
+     */
+    private void publishEvaluationRetryRequestedEvent(AIEvaluation evaluation, MissionCompletedEvent event,
+                                                     String originalEvaluationId, Integer retryAttempt, 
+                                                     String previousFailureReason) {
+        try {
+            newEvaluationEventPublisher.publishEvaluationRetryRequestedWithDefaults(
+                evaluation.getId().toString(),
+                originalEvaluationId,
+                event.getMissionId(),
+                event.getMissionAttemptId(),
+                Long.valueOf(event.getUserId()),
+                retryAttempt,
+                previousFailureReason
+            ).get();
+            
+            log.info("✅ Evaluation retry requested event published successfully: evaluationId={}, retryAttempt={}", 
+                evaluation.getId(), retryAttempt);
+        } catch (Exception e) {
+            log.warn("⚠️ Failed to publish evaluation retry requested event: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 평가 재시도 완료 이벤트 발행 헬퍼
+     */
+    private void publishEvaluationRetryCompletedEvent(AIEvaluation evaluation, MissionCompletedEvent event,
+                                                     String originalEvaluationId, Integer retryAttempt,
+                                                     boolean success, Integer finalScore, String failureReason,
+                                                     LocalDateTime retryStartedAt) {
+        try {
+            if (success) {
+                newEvaluationEventPublisher.publishEvaluationRetryCompletedSuccessWithDefaults(
+                    evaluation.getId().toString(),
+                    originalEvaluationId,
+                    event.getMissionId(),
+                    event.getMissionAttemptId(),
+                    Long.valueOf(event.getUserId()),
+                    retryAttempt,
+                    finalScore,
+                    retryStartedAt
+                ).get();
+            } else {
+                newEvaluationEventPublisher.publishEvaluationRetryCompletedFailedWithDefaults(
+                    evaluation.getId().toString(),
+                    originalEvaluationId,
+                    event.getMissionId(),
+                    event.getMissionAttemptId(),
+                    Long.valueOf(event.getUserId()),
+                    retryAttempt,
+                    failureReason,
+                    retryStartedAt
+                ).get();
+            }
+            
+            log.info("✅ Evaluation retry completed event published successfully: evaluationId={}, success={}", 
+                evaluation.getId(), success);
+        } catch (Exception e) {
+            log.warn("⚠️ Failed to publish evaluation retry completed event: {}", e.getMessage());
         }
     }
     

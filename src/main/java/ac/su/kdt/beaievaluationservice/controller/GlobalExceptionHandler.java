@@ -12,9 +12,9 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import jakarta.validation.ConstraintViolationException;
 import java.util.stream.Collectors;
 
-// 전역 예외 처리 핸들러 (Swagger 문제로 임시 비활성화)
+// 전역 예외 처리 핸들러
 @Slf4j
-// @RestControllerAdvice(basePackages = "ac.su.kdt.beaievaluationservice.controller")
+@RestControllerAdvice(basePackages = "ac.su.kdt.beaievaluationservice.controller")
 public class GlobalExceptionHandler {
 
     /**

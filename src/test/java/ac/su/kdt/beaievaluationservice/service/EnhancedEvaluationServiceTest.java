@@ -233,7 +233,7 @@ class EnhancedEvaluationServiceTest {
         // 실패 이벤트 발행 검증
         verify(evaluationEventPublisher).publishEvaluationFailed(
             eq("attempt-123"), 
-            eq("user-123"), 
+            eq("123"), 
             contains("Enhanced Gemini API evaluation failed"));
             
         // 성공 이벤트는 발행되지 않아야 함
@@ -261,7 +261,7 @@ class EnhancedEvaluationServiceTest {
         verify(aiEvaluationRepository, atLeast(2)).save(any(AIEvaluation.class));
         
         verify(evaluationEventPublisher).publishEvaluationFailed(
-            eq("attempt-123"), eq("user-123"), anyString());
+            eq("attempt-123"), eq("123"), anyString());
     }
 
     // Helper methods for test data creation
@@ -269,8 +269,8 @@ class EnhancedEvaluationServiceTest {
     private MissionCompletedEvent createEnhancedMissionCompletedEvent() {
         MissionCompletedEvent event = new MissionCompletedEvent();
         event.setEventType("MISSION_COMPLETED");
-        event.setUserId("user-123");
-        event.setMissionId("mission-456");
+        event.setUserId("123");
+        event.setMissionId("456");
         event.setMissionAttemptId("attempt-123");
         event.setMissionType("Docker Container");
         event.setCode("FROM ubuntu:20.04\nRUN apt-get update\nEXPOSE 8080\nCMD [\"nginx\", \"-g\", \"daemon off;\"]");
@@ -314,8 +314,8 @@ class EnhancedEvaluationServiceTest {
     private MissionCompletedEvent createBasicMissionCompletedEvent() {
         MissionCompletedEvent event = new MissionCompletedEvent();
         event.setEventType("MISSION_COMPLETED");
-        event.setUserId("user-123");
-        event.setMissionId("mission-456");
+        event.setUserId("123");
+        event.setMissionId("456");
         event.setMissionAttemptId("attempt-123");
         event.setMissionType("Docker Container");
         event.setCode("FROM ubuntu:20.04\nRUN apt-get update");

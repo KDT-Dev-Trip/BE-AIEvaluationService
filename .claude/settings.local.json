@@ -15,8 +15,14 @@
       "Bash(del /q \"C:\\workspace\\devtrip\\BE-AI-evaluation-service\\src\\main\\java\\ac\\su\\kdt\\beaievaluationservice\\config\\AsyncConfig.java\")",
       "Bash(taskkill:*)",
       "Bash(del /q \"C:\\workspace\\devtrip\\BE-AI-evaluation-service\\README-CICD.md\")",
-      "Bash(del /q \"C:\\workspace\\devtrip\\BE-AI-evaluation-service\\src\\main\\resources\\application.yml\")"
+      "Bash(del /q \"C:\\workspace\\devtrip\\BE-AI-evaluation-service\\src\\main\\resources\\application.yml\")",
+      "Bash(.gradlew compileJava)",
+      "Bash(gradlew:*)",
+      "Read(/C:\\c\\workspace\\devtrip/**)"
     ],
-    "deny": []
+    "deny": [],
+    "additionalDirectories": [
+      "C:\\c\\workspace\\devtrip"
+    ]
   }
 }

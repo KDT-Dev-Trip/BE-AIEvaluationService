@@ -81,7 +81,7 @@ public class GeminiEvaluationService {
                     log.warn("Invalid S3 Pre-Signed URL format: {}", e.getMessage());
                     s3Data = null;
                 } catch (Exception e) {
-                    log.warn("Failed to read S3 mock data, proceeding without it. Error: {} - {}", e.getClass().getSimpleName(), e.getMessage());
+                    log.warn("Error reading S3 mock data: {} - {}", e.getClass().getSimpleName(), e.getMessage());
                     s3Data = null;
                 }
             } else {
@@ -104,7 +104,7 @@ public class GeminiEvaluationService {
             log.error("RuntimeException during evaluation for missionId: {}", missionId, e);
             throw e;
         } catch (Exception e) {
-            log.error("Unexpected error during evaluation for missionId: {}", missionId, e);
+            log.error("Error during evaluation for missionId: {}", missionId, e);
             throw new RuntimeException("Evaluation process failed: " + e.getMessage(), e);
         }
     }
@@ -216,19 +216,77 @@ public class GeminiEvaluationService {
                 // - 리소스 효율성 분석: CPU, 메모리, 네트워크 사용 패턴 평가
                 // - 성능 최적화 분석: 실행 시간, 불필요한 작업 여부 검토
                 // - 작업 완성도 분석: 목표 달성도와 전반적인 품질 평가
-                userPrompt.append("\n[ANALYSIS REQUIREMENTS]\n");
-                userPrompt.append("위 실행 로그와 메트릭을 분석하여 다음을 평가하세요:\n\n");
-                userPrompt.append("✓ 핵심 명령어 사용법 및 숙련도 (kubectl, docker, helm 등)\n");
-                userPrompt.append("  - 실제 사용된 명령어들을 명시하고 각각의 목적과 적절성 분석\n");
-                userPrompt.append("  - 명령어 옵션 사용의 정확성과 효율성 평가\n");
-                userPrompt.append("  - 명령어 실행 순서의 논리적 적절성 검토\n");
-                userPrompt.append("✓ 각 미션 목표별 달성률 (체크리스트 기준)\n");
-                userPrompt.append("✓ 명령어 실행 성공률과 오류 처리 패턴\n");
-                userPrompt.append("✓ 시스템 리소스 사용 효율성 (CPU, Memory, Network, Disk I/O)\n");
-                userPrompt.append("✓ 실행 시간과 성능 최적화 수준\n");
-                userPrompt.append("✓ 전체적인 작업 완성도와 코드 품질\n\n");
-                userPrompt.append("IMPORTANT: core_commands_analysis.key_commands_used 배열에는 반드시 실제 로그에서 발견된 핵심 명령어들을 포함하세요.\n");
-                userPrompt.append("각 명령어에 대해 command, explanation, assessment 필드를 모두 제공해야 합니다.\n");
+                userPrompt.append("\n[COMPREHENSIVE ANALYSIS REQUIREMENTS]\n");
+                userPrompt.append("다음 모든 항목들을 상세히 분석하고 평가하세요:\n\n");
+                
+                // 1. 명령어 실행 분석
+                userPrompt.append("=== 1. COMMAND EXECUTION ANALYSIS ===\n");
+                userPrompt.append("✓ 실행된 모든 명령어 목록화 및 분석\n");
+                userPrompt.append("  - 각 명령어의 목적과 의도 파악\n");
+                userPrompt.append("  - 명령어 문법의 정확성 (옵션, 파라미터 사용)\n");
+                userPrompt.append("  - 실행 순서의 논리적 타당성\n");
+                userPrompt.append("  - 불필요하거나 중복된 명령어 식별\n");
+                userPrompt.append("✓ 에러 처리 패턴 분석\n");
+                userPrompt.append("  - 발생한 모든 에러 메시지 분류\n");
+                userPrompt.append("  - 에러 복구 시도 및 해결 방법 평가\n");
+                userPrompt.append("  - 재시도 패턴과 문제 해결 접근법\n\n");
+                
+                // 2. 리소스 사용량 분석
+                userPrompt.append("=== 2. RESOURCE UTILIZATION ANALYSIS ===\n");
+                userPrompt.append("✓ CPU 사용 패턴\n");
+                userPrompt.append("  - 평균/최대 CPU 사용률 평가\n");
+                userPrompt.append("  - CPU 스파이크 원인 분석\n");
+                userPrompt.append("  - CPU 최적화 가능성 검토\n");
+                userPrompt.append("✓ 메모리 사용 패턴\n");
+                userPrompt.append("  - 메모리 사용량 추이 분석\n");
+                userPrompt.append("  - 메모리 누수 가능성 검토\n");
+                userPrompt.append("  - 메모리 효율성 평가\n");
+                userPrompt.append("✓ 네트워크 I/O 분석\n");
+                userPrompt.append("  - 네트워크 전송량 적절성\n");
+                userPrompt.append("  - 불필요한 네트워크 호출 여부\n\n");
+                
+                // 3. 출력 결과 분석
+                userPrompt.append("=== 3. OUTPUT ANALYSIS ===\n");
+                userPrompt.append("✓ 명령어 출력 결과 검증\n");
+                userPrompt.append("  - 예상된 출력과의 일치 여부\n");
+                userPrompt.append("  - 경고 메시지 분석\n");
+                userPrompt.append("  - 성공 메시지 확인\n");
+                userPrompt.append("✓ 최종 상태 검증\n");
+                userPrompt.append("  - Pod/Container 상태 확인\n");
+                userPrompt.append("  - Service 접근 가능성\n");
+                userPrompt.append("  - 데이터 일관성 검증\n\n");
+                
+                // 4. 작업 공간 분석
+                userPrompt.append("=== 4. WORKSPACE ANALYSIS ===\n");
+                userPrompt.append("✓ 생성/수정된 파일 분석\n");
+                userPrompt.append("  - YAML/JSON 파일 구조 검증\n");
+                userPrompt.append("  - 설정 파일의 적절성\n");
+                userPrompt.append("  - 파일 명명 규칙 준수\n");
+                userPrompt.append("✓ 디렉토리 구조 평가\n");
+                userPrompt.append("  - 프로젝트 구조의 체계성\n");
+                userPrompt.append("  - 파일 조직화 수준\n\n");
+                
+                // 5. 보안 및 모범 사례
+                userPrompt.append("=== 5. SECURITY & BEST PRACTICES ===\n");
+                userPrompt.append("✓ 보안 검사\n");
+                userPrompt.append("  - 하드코딩된 시크릿/패스워드 검사\n");
+                userPrompt.append("  - 권한 설정 적절성\n");
+                userPrompt.append("  - 네트워크 정책 검토\n");
+                userPrompt.append("✓ 모범 사례 준수\n");
+                userPrompt.append("  - 라벨링 규칙 준수\n");
+                userPrompt.append("  - 리소스 제한 설정\n");
+                userPrompt.append("  - Health check 구성\n");
+                userPrompt.append("  - 롤백 가능성\n\n");
+                
+                // 6. 성능 및 효율성
+                userPrompt.append("=== 6. PERFORMANCE & EFFICIENCY ===\n");
+                userPrompt.append("✓ 전체 실행 시간 평가\n");
+                userPrompt.append("✓ 병목 구간 식별\n");
+                userPrompt.append("✓ 최적화 가능 영역\n");
+                userPrompt.append("✓ 확장성 고려사항\n\n");
+                
+                userPrompt.append("CRITICAL: 실제 로그 데이터에 기반한 구체적이고 상세한 평가를 제공하세요.\n");
+                userPrompt.append("각 명령어, 에러, 리소스 사용량에 대해 구체적인 수치와 함께 평가해야 합니다.\n");
             }
         }
         
@@ -445,7 +503,7 @@ public class GeminiEvaluationService {
                 
             } catch (Exception e) {
                 lastException = e;
-                log.warn("Gemini API unexpected error on attempt {}/{}: {}", attempt, maxRetryAttempts, e.getMessage());
+                log.warn("Gemini API error on attempt {}/{}: {}", attempt, maxRetryAttempts, e.getMessage());
             }
             
             // 마지막 시도가 아니면 잠시 대기
@@ -453,7 +511,22 @@ public class GeminiEvaluationService {
                 try {
                     long delayMs = retryDelaySeconds * 1000L * attempt; // 점진적 백오프
                     log.info("Waiting {}ms before retry...", delayMs);
-                    Thread.sleep(delayMs);
+                    // 비동기 대기 구현: CompletableFuture를 사용하여 블로킹 없이 지연 처리
+                    try {
+                        java.util.concurrent.CompletableFuture
+                            .supplyAsync(() -> {
+                                try {
+                                    Thread.sleep(delayMs);
+                                    return null;
+                                } catch (InterruptedException e) {
+                                    Thread.currentThread().interrupt();
+                                    throw new RuntimeException("Async delay interrupted", e);
+                                }
+                            })
+                            .get(); // 동기 대기 - 현재 컨텍스트에서는 불가피
+                    } catch (java.util.concurrent.ExecutionException e) {
+                        throw new RuntimeException("Async delay failed", e);
+                    }
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     throw new RuntimeException("Retry interrupted", ie);
@@ -523,9 +596,15 @@ public class GeminiEvaluationService {
             JsonNode parsedJson;
             try {
                 parsedJson = objectMapper.readTree(jsonContent);
-            } catch (Exception jsonEx) {
-                log.error("Failed to parse extracted JSON: {}", jsonContent.substring(0, Math.min(200, jsonContent.length())), jsonEx);
+            } catch (com.fasterxml.jackson.core.JsonParseException jsonEx) {
+                log.error("JSON parse error in extracted content: {}", jsonContent.substring(0, Math.min(200, jsonContent.length())), jsonEx);
                 return createFallbackResult("Invalid JSON format: " + jsonEx.getMessage());
+            } catch (com.fasterxml.jackson.core.JsonProcessingException jsonEx) {
+                log.error("JSON processing error in extracted content: {}", jsonContent.substring(0, Math.min(200, jsonContent.length())), jsonEx);
+                return createFallbackResult("JSON processing error: " + jsonEx.getMessage());
+            } catch (Exception jsonEx) {
+                log.error("Unexpected error parsing JSON content: {}", jsonContent.substring(0, Math.min(200, jsonContent.length())), jsonEx);
+                return createFallbackResult("JSON parsing failed: " + jsonEx.getMessage());
             }
             
             // 새로운 DevOps 채점관 형식인지 확인
@@ -538,8 +617,11 @@ public class GeminiEvaluationService {
                 return objectMapper.readValue(jsonContent, EvaluationResultDTO.class);
             }
             
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            log.error("JSON processing error parsing Gemini response: {}", geminiResponse.substring(0, Math.min(500, geminiResponse.length())), e);
+            return createFallbackResult("JSON parsing error: " + e.getMessage());
         } catch (Exception e) {
-            log.error("Failed to parse Gemini response - Full response: {}", geminiResponse, e);
+            log.error("Unexpected error parsing Gemini response: {}", geminiResponse.substring(0, Math.min(500, geminiResponse.length())), e);
             return createFallbackResult("Parsing error: " + e.getMessage());
         }
     }
@@ -778,8 +860,10 @@ public class GeminiEvaluationService {
                         return extracted;
                     }
                 }
+            } catch (java.util.regex.PatternSyntaxException e) {
+                log.debug("Invalid regex pattern {}: {}", pattern, e.getMessage());
             } catch (Exception e) {
-                log.debug("Failed to extract JSON with pattern {}: {}", pattern, e.getMessage());
+                log.debug("Unexpected error extracting JSON with pattern {}: {}", pattern, e.getMessage());
             }
         }
         

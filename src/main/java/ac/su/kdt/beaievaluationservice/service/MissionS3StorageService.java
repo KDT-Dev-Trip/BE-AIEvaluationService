@@ -128,8 +128,8 @@ public class MissionS3StorageService {
             // 새로운 정보 생성
             storage = new MissionS3Storage();
             storage.setMissionAttemptId(missionAttemptId);
-            storage.setUserId(Long.valueOf(userId));
-            storage.setMissionId(Long.valueOf(missionId));
+            storage.setUserId(Long.parseLong(userId));
+            storage.setMissionId(missionId);
             storage.setS3StorageUrl(s3StorageUrl);
             storage.setBucketName(bucketName);
             storage.setObjectKeyPrefix(objectKey);

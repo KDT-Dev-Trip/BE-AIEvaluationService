@@ -10,6 +10,7 @@ import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
+import org.springframework.scheduling.annotation.Async;
 
 // Kafka에서 mission.completed 이벤트를 수신하고, 해당 이벤트를 처리하여
 // AI 평가 프로세스를 시작하는 컴포넌트
@@ -42,24 +43,39 @@ public class MissionCompletedEventConsumer {
 
         try {
             if (isValidEvent(event)) {
-                log.info("=== STARTING AI EVALUATION ===");
+                log.info("=== STARTING ASYNC AI EVALUATION ===");
                 log.info("Processing evaluation for mission attempt: {}", event.getMissionAttemptId());
                 
-                evaluationService.processEvaluation(event);
-                acknowledgment.acknowledge();
+                // 비동기 처리로 즉시 ACK하여 Consumer 응답성 향상
+                evaluationService.processEvaluationAsync(event)
+                    .whenComplete((result, throwable) -> {
+                        if (throwable != null) {
+                            log.error("=== ASYNC EVALUATION FAILED ===");
+                            log.error("Async evaluation failed for missionAttemptId: {}", 
+                                event.getMissionAttemptId(), throwable);
+                        } else {
+                            log.info("=== ASYNC EVALUATION COMPLETED ===");
+                            log.info("Async evaluation completed for missionAttemptId: {}", 
+                                event.getMissionAttemptId());
+                        }
+                    });
                 
-                log.info("=== EVALUATION COMPLETED SUCCESSFULLY ===");
-                log.info("Mission attempt {} evaluation finished and acknowledged", event.getMissionAttemptId());
+                // 즉시 ACK - Consumer가 다음 메시지를 처리할 수 있도록
+                acknowledgment.acknowledge();
+                log.info("=== MESSAGE ACKNOWLEDGED (ASYNC PROCESSING) ===");
+                log.info("Message acknowledged, evaluation processing asynchronously for: {}", 
+                    event.getMissionAttemptId());
+                    
             } else {
                 log.warn("=== INVALID EVENT RECEIVED ===");
                 log.warn("Event validation failed: {}", event);
                 acknowledgment.acknowledge();
             }
         } catch (Exception e) {
-            log.error("=== EVALUATION FAILED ===");
-            log.error("Error processing mission completed event for missionAttemptId: {}", 
+            log.error("=== CONSUMER ERROR ===");
+            log.error("Error in consumer handling for missionAttemptId: {}", 
                     event != null ? event.getMissionAttemptId() : "null", e);
-            acknowledgment.acknowledge();
+            acknowledgment.acknowledge(); // 실패한 메시지도 ACK하여 무한 재처리 방지
         }
     }
 

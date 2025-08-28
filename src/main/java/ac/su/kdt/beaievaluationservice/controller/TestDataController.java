@@ -5,6 +5,8 @@ import ac.su.kdt.beaievaluationservice.entity.AIEvaluation;
 import ac.su.kdt.beaievaluationservice.repository.AIEvaluationRepository;
 import ac.su.kdt.beaievaluationservice.repository.EvaluationSummaryRepository;
 import ac.su.kdt.beaievaluationservice.repository.EvaluationHistoryRepository;
+import ac.su.kdt.beaievaluationservice.kafka.event.MissionCompletedEvent;
+import org.springframework.kafka.core.KafkaTemplate;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -27,6 +29,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/test")
 @RequiredArgsConstructor
+@org.springframework.web.bind.annotation.CrossOrigin(origins = "*", maxAge = 3600)
 public class TestDataController {
 
     private final AIEvaluationRepository aiEvaluationRepository;
@@ -35,6 +38,9 @@ public class TestDataController {
     
     @Autowired(required = false)
     private ac.su.kdt.beaievaluationservice.service.MockS3DataService mockS3DataService;
+    
+    @Autowired(required = false)
+    private KafkaTemplate<String, Object> kafkaTemplate;
 
     /**
      * 시스템 헬스 체크
@@ -211,7 +217,7 @@ public class TestDataController {
 
         try {
             // 평가 요약 데이터 삭제 (연관된 히스토리도 자동 삭제됨)
-            evaluationSummaryRepository.findByUserIdOrderByCreatedAtDesc(Long.valueOf(userId))
+            evaluationSummaryRepository.findByUserIdOrderByCreatedAtDesc(Long.parseLong(userId))
                     .forEach(evaluationSummaryRepository::delete);
 
             return ResponseEntity.ok(ApiResponse.success(userId + " 사용자의 데이터가 삭제되었습니다."));
@@ -278,37 +284,159 @@ public class TestDataController {
         log.info("Create mock evaluation result for missionAttemptId: {}", missionAttemptId);
 
         try {
-            // 목업 평가 결과 JSON 생성
+            // 목업 평가 결과 JSON 생성 (다양한 평가 항목 포함)
             String mockResult = """
                 {
-                    "overallScore": 82,
-                    "feedback": "전체적으로 잘 작성된 코드입니다. 기본적인 기능이 올바르게 구현되어 있으며, 가독성도 좋습니다.",
-                    "detailedAnalysis": "코드 구조가 명확하고 기본적인 객체지향 원칙을 잘 따르고 있습니다.",
-                    "codeQuality": {
-                        "score": 85,
-                        "feedback": "코드 구조가 명확하고 가독성이 좋습니다.",
-                        "suggestions": "주석을 추가하여 복잡한 로직에 대한 설명을 제공하는 것을 권장합니다."
+                    "total_score": 13,
+                    "overallScore": 87,
+                    "feedback": "Kubernetes 배포가 성공적으로 완료되었습니다. Deployment와 Service 리소스가 올바르게 구성되었으며, Pod가 정상적으로 실행되고 있습니다.",
+                    "detailedAnalysis": "전체적으로 우수한 Kubernetes 배포 구성입니다. nginx 애플리케이션이 성공적으로 배포되었으며, LoadBalancer 타입의 Service를 통해 외부 접근이 가능합니다.",
+                    
+                    "correctness": {
+                        "score": 5,
+                        "percentage": 100,
+                        "feedback": "모든 Kubernetes 리소스가 올바르게 정의되고 배포되었습니다.",
+                        "details": "Deployment의 replicas 설정, Service의 selector와 port 매핑이 정확합니다.",
+                        "checklist": {
+                            "syntaxCorrect": true,
+                            "logicCorrect": true,
+                            "requirementsMet": true,
+                            "outputCorrect": true
+                        }
                     },
+                    
+                    "efficiency": {
+                        "score": 4,
+                        "percentage": 80,
+                        "feedback": "리소스 사용이 효율적이나 일부 최적화 가능한 부분이 있습니다.",
+                        "details": "컨테이너 리소스 limits/requests 설정을 추가하면 더 효율적인 리소스 관리가 가능합니다.",
+                        "metrics": {
+                            "timeComplexity": "O(1)",
+                            "spaceComplexity": "O(n)",
+                            "resourceUsage": "최적",
+                            "scalability": "양호"
+                        }
+                    },
+                    
+                    "quality": {
+                        "score": 4,
+                        "percentage": 80,
+                        "feedback": "코드 품질이 우수하며 모범 사례를 잘 따르고 있습니다.",
+                        "details": "라벨링 컨벤션을 잘 지켰으며, 메타데이터가 명확합니다. Health check 설정을 추가하면 더 좋습니다.",
+                        "aspects": {
+                            "readability": 9,
+                            "maintainability": 8,
+                            "reusability": 7,
+                            "testability": 8
+                        }
+                    },
+                    
                     "security": {
                         "score": 75,
-                        "feedback": "기본적인 보안 이슈는 없으나, 입력값 검증이 필요합니다.",
-                        "vulnerabilities": "입력값에 대한 null 체크가 부족합니다.",
-                        "recommendations": "입력 파라미터에 대한 null 체크와 범위 검증을 추가하세요."
+                        "level": "MODERATE",
+                        "feedback": "기본 보안 설정은 양호하나 NetworkPolicy 추가를 권장합니다.",
+                        "vulnerabilities": [],
+                        "recommendations": [
+                            "NetworkPolicy를 사용하여 네트워크 트래픽 제한",
+                            "RBAC 설정으로 권한 관리 강화",
+                            "Secret을 사용하여 민감한 정보 보호",
+                            "Pod Security Policy 적용 고려"
+                        ]
                     },
+                    
                     "style": {
-                        "score": 88,
-                        "feedback": "코딩 컨벤션을 잘 준수하고 있습니다.",
-                        "styleIssues": "JavaDoc 주석이 부족합니다.",
-                        "improvements": "public 메서드에 JavaDoc 주석을 추가하세요."
+                        "score": 90,
+                        "feedback": "Kubernetes 리소스 명명 규칙과 라벨링 컨벤션을 잘 준수했습니다.",
+                        "violations": [],
+                        "suggestions": [
+                            "주석을 추가하여 복잡한 설정 설명",
+                            "환경별 설정 분리 (ConfigMap 활용)"
+                        ]
+                    },
+                    
+                    "performance": {
+                        "executionTimeMs": 234,
+                        "cpuUsage": 23.5,
+                        "memoryUsage": 445.2,
+                        "assessment": "최적화 상태 양호",
+                        "bottlenecks": [],
+                        "optimizationTips": [
+                            "HPA(Horizontal Pod Autoscaler) 설정 추가",
+                            "리소스 limits/requests 최적화"
+                        ]
+                    },
+                    
+                    "bestPractices": {
+                        "score": 85,
+                        "followed": [
+                            "선언적 구성 사용",
+                            "라벨 셀렉터 일관성",
+                            "컨테이너 이미지 버전 명시",
+                            "서비스 타입 적절히 선택"
+                        ],
+                        "missing": [
+                            "Health check (liveness/readiness probes)",
+                            "Resource limits and requests",
+                            "Security context 설정"
+                        ]
+                    },
+                    
+                    "documentation": {
+                        "score": 60,
+                        "feedback": "기본적인 메타데이터는 있으나 상세 문서화 부족",
+                        "suggestions": [
+                            "README 파일에 배포 절차 문서화",
+                            "각 리소스에 대한 주석 추가",
+                            "환경 변수 및 설정 값 설명"
+                        ]
+                    },
+                    
+                    "recommendations": {
+                        "immediate": [
+                            "Health check 프로브 추가",
+                            "리소스 limits/requests 설정"
+                        ],
+                        "shortTerm": [
+                            "HPA 설정으로 자동 스케일링 구현",
+                            "ConfigMap으로 설정 외부화"
+                        ],
+                        "longTerm": [
+                            "CI/CD 파이프라인 통합",
+                            "모니터링 및 로깅 시스템 구축",
+                            "Istio 등 Service Mesh 도입 검토"
+                        ]
+                    },
+                    
+                    "summary": {
+                        "grade": "A-",
+                        "percentageScore": 87,
+                        "strengths": [
+                            "올바른 Kubernetes 리소스 구성",
+                            "명확한 라벨링 및 네이밍",
+                            "기본적인 배포 요구사항 충족"
+                        ],
+                        "weaknesses": [
+                            "Health check 미설정",
+                            "리소스 제한 미설정",
+                            "보안 정책 부재"
+                        ],
+                        "verdict": "프로덕션 배포 가능하나 추가 개선 권장"
                     }
                 }
                 """;
 
             AIEvaluation evaluation = new AIEvaluation();
             evaluation.setMissionAttemptId(missionAttemptId);
+            evaluation.setMissionId("1001");  // Mock mission ID
+            evaluation.setUserId(123L);  // Mock user ID
+            evaluation.setMissionType("KUBERNETES");
+            evaluation.setMissionTitle("Mock Kubernetes Deployment Test");
             evaluation.setStatus(AIEvaluation.EvaluationStatus.COMPLETED);
             evaluation.setAiModelVersion("gemini-1.5-pro-mock");
             evaluation.setEvaluationResult(mockResult);
+            evaluation.setEvaluationTrigger("MANUAL_REQUEST");
+            evaluation.setProcessingTimeMs(1234L);
+            evaluation.setSubmittedCode("kubectl apply -f deployment.yaml");
             
             aiEvaluationRepository.save(evaluation);
             
@@ -647,5 +775,63 @@ public class TestDataController {
               "statistics": """ + statistics.toString() + """
             }'
             """;
+    }
+
+    /**
+     * Kafka 메시징 테스트 - 미션 완료 이벤트 발행
+     */
+    @PostMapping("/kafka/publish-mission-completed")
+    public ApiResponse<Map<String, Object>> publishMissionCompletedEvent(
+            @RequestParam(defaultValue = "test-mission-123") String missionId,
+            @RequestParam(defaultValue = "test-user-456") String userId,
+            @RequestParam(defaultValue = "test-attempt-789") String missionAttemptId,
+            @RequestParam(defaultValue = "DOCKER_COMPOSE") String missionType) {
+        
+        try {
+            // MissionCompletedEvent 생성
+            MissionCompletedEvent event = new MissionCompletedEvent();
+            event.setMissionId(missionId);
+            event.setUserId(userId);
+            event.setMissionAttemptId(missionAttemptId);
+            event.setMissionType(missionType);
+            event.setCode("version: '3.8'\\nservices:\\n  web:\\n    image: nginx");
+            event.setCompletedAt(LocalDateTime.now());
+            event.setEventType("MISSION_COMPLETED");
+            event.setMissionTitle("테스트 미션");
+            
+            // 간단한 통계 데이터 추가
+            MissionCompletedEvent.SimpleStatistics stats = new MissionCompletedEvent.SimpleStatistics();
+            stats.setCommandSuccessCount(5);
+            stats.setCommandFailureCount(0);
+            stats.setAverageCpuUsage(15.2);
+            event.setStatistics(stats);
+            
+            // Kafka로 전송
+            if (kafkaTemplate != null) {
+                kafkaTemplate.send("mission.completed.dev", event);
+                log.info("Kafka 메시지 발행 성공: topic=mission.completed.dev, missionAttemptId={}", missionAttemptId);
+            } else {
+                log.warn("KafkaTemplate이 null입니다. Kafka 메시지를 발행할 수 없습니다.");
+            }
+            
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
+            result.put("topic", "mission.completed.dev");
+            result.put("missionId", missionId);
+            result.put("userId", userId);
+            result.put("missionAttemptId", missionAttemptId);
+            result.put("timestamp", LocalDateTime.now());
+            
+            return ApiResponse.success("Kafka 메시지 발행 성공", result);
+                
+        } catch (Exception e) {
+            log.error("Kafka 메시지 발행 실패", e);
+            
+            Map<String, Object> errorResult = new HashMap<>();
+            errorResult.put("success", false);
+            errorResult.put("error", e.getMessage());
+            
+            return new ApiResponse<>(false, "Kafka 메시지 발행 실패: " + e.getMessage(), errorResult, LocalDateTime.now());
+        }
     }
 }

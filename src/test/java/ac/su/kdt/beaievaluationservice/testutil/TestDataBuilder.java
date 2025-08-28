@@ -213,7 +213,7 @@ public class TestDataBuilder {
     public static class EvaluationSummaryBuilder {
         private Long id = 1L;
         private Long userId = 123L;
-        private Long missionId = 456L;
+        private String missionId = "456";
         private String missionAttemptId = "test-attempt-789";
         private String missionTitle = "Docker 컨테이너 생성 실습";
         private String missionType = "Docker Container";
@@ -238,7 +238,7 @@ public class TestDataBuilder {
             return this;
         }
 
-        public EvaluationSummaryBuilder missionId(Long missionId) {
+        public EvaluationSummaryBuilder missionId(String missionId) {
             this.missionId = missionId;
             return this;
         }

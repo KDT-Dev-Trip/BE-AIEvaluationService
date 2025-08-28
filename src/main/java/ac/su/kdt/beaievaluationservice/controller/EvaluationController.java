@@ -185,7 +185,7 @@ public class EvaluationController {
         log.info("Get evaluation history for userId: {}", userId);
 
         try {
-            List<EvaluationSummary> summaries = evaluationSummaryRepository.findByUserIdOrderByCreatedAtDesc(Long.valueOf(userId));
+            List<EvaluationSummary> summaries = evaluationSummaryRepository.findByUserIdOrderByCreatedAtDesc(Long.parseLong(userId));
             
             List<EvaluationResponse> responses = summaries.stream()
                     .map(this::convertSummaryToResponse)
@@ -431,6 +431,11 @@ public class EvaluationController {
 
     // Helper methods
     private MissionCompletedEvent convertToEvent(EvaluationRequest request) {
+        log.info("=== convertToEvent DEBUG ===");
+        log.info("Request userId: {}", request.getUserId());
+        log.info("Request missionId: {}", request.getMissionId());
+        log.info("Request missionAttemptId: {}", request.getMissionAttemptId());
+        
         MissionCompletedEvent event = new MissionCompletedEvent();
         event.setEventType("MISSION_COMPLETED");
         event.setUserId(request.getUserId());
@@ -440,6 +445,9 @@ public class EvaluationController {
         event.setMissionTitle(request.getMissionTitle());
         event.setCode(request.getCode());
         event.setCompletedAt(LocalDateTime.now());
+        
+        log.info("Event after setting - userId: {}, missionId: {}, missionAttemptId: {}", 
+                event.getUserId(), event.getMissionId(), event.getMissionAttemptId());
         
         // === S3 통합 필드들 ===
         event.setMissionObjective(request.getMissionObjective());

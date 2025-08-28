@@ -39,7 +39,7 @@ public class EvaluationSummary {
     private Long userId;
 
     @Column(name = "mission_id", nullable = false)
-    private Long missionId;
+    private String missionId;
 
     @Column(name = "mission_attempt_id", length = 36, nullable = false, unique = true)
     private String missionAttemptId;

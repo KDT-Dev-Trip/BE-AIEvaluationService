@@ -23,6 +23,7 @@ public class EvaluationRetryService {
 
     private final AIEvaluationRepository aiEvaluationRepository;
     private final EvaluationService evaluationService;
+    private final EvaluationEventPublisher evaluationEventPublisher;
 
     @Scheduled(fixedDelay = 180000) // 3분마다 실행
     @Transactional
@@ -43,6 +44,23 @@ public class EvaluationRetryService {
                     evaluation.setStatus(AIEvaluation.EvaluationStatus.FAILED);
                     evaluation.setErrorMessage("Evaluation timeout - marked as failed by retry service");
                     aiEvaluationRepository.save(evaluation);
+                    
+                    // 평가 실패 이벤트 발행
+                    try {
+                        evaluationEventPublisher.publishEvaluationFailedWithDefaults(
+                            evaluation.getId().toString(),
+                            "UNKNOWN", // missionId가 없어서 기본값 사용
+                            evaluation.getMissionAttemptId(),
+                            evaluation.getUserId(),
+                            "Evaluation timeout - marked as failed by retry service",
+                            0 // 재시도 횟수
+                        ).get();
+                        log.info("Published evaluation failed event for stuck evaluation: missionAttemptId={}", 
+                            evaluation.getMissionAttemptId());
+                    } catch (Exception eventEx) {
+                        log.warn("Failed to publish evaluation failed event for stuck evaluation: missionAttemptId={}, error={}", 
+                            evaluation.getMissionAttemptId(), eventEx.getMessage());
+                    }
                     
                 } catch (Exception e) {
                     log.error("Failed to mark stuck evaluation as failed: missionAttemptId={}", 

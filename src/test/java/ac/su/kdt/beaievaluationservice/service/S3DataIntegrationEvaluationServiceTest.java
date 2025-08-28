@@ -182,8 +182,8 @@ class S3DataIntegrationEvaluationServiceTest {
     private MissionCompletedEvent createS3IntegratedMissionCompletedEvent() {
         MissionCompletedEvent event = new MissionCompletedEvent();
         event.setEventType("MISSION_COMPLETED");
-        event.setUserId("user-s3-test");
-        event.setMissionId("mission-s3-integration");
+        event.setUserId("100001");
+        event.setMissionId("500001");
         event.setMissionAttemptId("s3-mission-123");
         event.setMissionType("Kubernetes Deployment");
         event.setCode("apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: nginx-deployment");
@@ -226,8 +226,8 @@ class S3DataIntegrationEvaluationServiceTest {
     private MissionCompletedEvent createEventWithoutPreSignedUrl() {
         MissionCompletedEvent event = new MissionCompletedEvent();
         event.setEventType("MISSION_COMPLETED");
-        event.setUserId("user-no-presigned");
-        event.setMissionId("mission-no-presigned");
+        event.setUserId("100002");
+        event.setMissionId("500002");
         event.setMissionAttemptId("no-presigned-123");
         event.setMissionType("Docker Compose");
         event.setCode("version: '3.8'\nservices:\n  web:\n    image: nginx");

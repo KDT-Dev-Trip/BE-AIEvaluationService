@@ -41,7 +41,7 @@ public class MissionS3Storage {
     private Long userId;
     
     @Column(name = "mission_id", nullable = false) 
-    private Long missionId;
+    private String missionId;
     
     // S3 저장소 경로들
     @Column(name = "s3_storage_url", nullable = false, length = 500)

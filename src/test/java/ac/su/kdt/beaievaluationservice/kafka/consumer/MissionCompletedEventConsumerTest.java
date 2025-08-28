@@ -14,6 +14,7 @@ import org.springframework.kafka.support.Acknowledgment;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import java.util.concurrent.CompletableFuture;
 
 // MissionCompletedEventConsumer의 단위 테스트를 작성합니다.
 @ExtendWith(MockitoExtension.class)
@@ -40,13 +41,15 @@ class MissionCompletedEventConsumerTest {
     @DisplayName("유효한 이벤트 처리 - 정상 케이스")
     void handleMissionCompletedEvent_ValidEvent_Success() {
         // Given - 유효한 이벤트
+        when(evaluationService.processEvaluationAsync(any()))
+            .thenReturn(CompletableFuture.completedFuture(null));
 
         // When
         missionCompletedEventConsumer.handleMissionCompletedEvent(
             validEvent, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService).processEvaluation(validEvent);
+        verify(evaluationService).processEvaluationAsync(validEvent);
         verify(acknowledgment).acknowledge();
     }
 
@@ -58,7 +61,7 @@ class MissionCompletedEventConsumerTest {
             null, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService, never()).processEvaluation(any());
+        verify(evaluationService, never()).processEvaluationAsync(any());
         verify(acknowledgment).acknowledge(); // 잘못된 이벤트는 acknowledge하여 재처리 방지
     }
 
@@ -75,7 +78,7 @@ class MissionCompletedEventConsumerTest {
             invalidEvent, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService, never()).processEvaluation(any());
+        verify(evaluationService, never()).processEvaluationAsync(any());
         verify(acknowledgment).acknowledge();
     }
 
@@ -92,7 +95,7 @@ class MissionCompletedEventConsumerTest {
             invalidEvent, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService, never()).processEvaluation(any());
+        verify(evaluationService, never()).processEvaluationAsync(any());
         verify(acknowledgment).acknowledge();
     }
 
@@ -109,7 +112,7 @@ class MissionCompletedEventConsumerTest {
             invalidEvent, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService, never()).processEvaluation(any());
+        verify(evaluationService, never()).processEvaluationAsync(any());
         verify(acknowledgment).acknowledge();
     }
 
@@ -126,7 +129,7 @@ class MissionCompletedEventConsumerTest {
             invalidEvent, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService, never()).processEvaluation(any());
+        verify(evaluationService, never()).processEvaluationAsync(any());
         verify(acknowledgment).acknowledge();
     }
 
@@ -134,15 +137,16 @@ class MissionCompletedEventConsumerTest {
     @DisplayName("평가 서비스 예외 발생 - acknowledge 여전히 호출됨")
     void handleMissionCompletedEvent_EvaluationServiceException() {
         // Given
-        doThrow(new RuntimeException("Evaluation service error"))
-            .when(evaluationService).processEvaluation(any());
+        CompletableFuture<Void> failedFuture = CompletableFuture.failedFuture(
+            new RuntimeException("Evaluation service error"));
+        when(evaluationService.processEvaluationAsync(any())).thenReturn(failedFuture);
 
         // When
         missionCompletedEventConsumer.handleMissionCompletedEvent(
             validEvent, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService).processEvaluation(validEvent);
+        verify(evaluationService).processEvaluationAsync(validEvent);
         verify(acknowledgment).acknowledge(); // 예외 발생해도 acknowledge 호출됨
     }
 
@@ -159,7 +163,7 @@ class MissionCompletedEventConsumerTest {
             invalidEvent, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService, never()).processEvaluation(any());
+        verify(evaluationService, never()).processEvaluationAsync(any());
         verify(acknowledgment).acknowledge();
     }
 
@@ -176,7 +180,7 @@ class MissionCompletedEventConsumerTest {
             invalidEvent, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService, never()).processEvaluation(any());
+        verify(evaluationService, never()).processEvaluationAsync(any());
         verify(acknowledgment).acknowledge();
     }
 
@@ -189,13 +193,16 @@ class MissionCompletedEventConsumerTest {
         minimalEvent.setCode("FROM ubuntu");
         minimalEvent.setUserId("user");
         minimalEvent.setMissionId("mission");
+        
+        when(evaluationService.processEvaluationAsync(any()))
+            .thenReturn(CompletableFuture.completedFuture(null));
 
         // When
         missionCompletedEventConsumer.handleMissionCompletedEvent(
             minimalEvent, "mission.completed", 0, 12345L, acknowledgment);
 
         // Then
-        verify(evaluationService).processEvaluation(minimalEvent);
+        verify(evaluationService).processEvaluationAsync(minimalEvent);
         verify(acknowledgment).acknowledge();
     }
 }

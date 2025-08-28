@@ -25,7 +25,7 @@ COPY --from=build --chown=spring:spring /app/build/libs/*.jar app.jar
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8080/actuator/health || exit 1
+    CMD curl -f http://localhost:8084/actuator/health || exit 1
 
 USER spring
 

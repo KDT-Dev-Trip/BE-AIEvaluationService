@@ -40,7 +40,7 @@ public class AIEvaluation {
     private Long userId;
 
     @Column(name = "mission_id", nullable = false)
-    private Long missionId;
+    private String missionId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "evaluation_status", length = 20, nullable = false)

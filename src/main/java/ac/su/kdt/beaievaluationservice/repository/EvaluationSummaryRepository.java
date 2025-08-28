@@ -21,7 +21,7 @@ public interface EvaluationSummaryRepository extends JpaRepository<EvaluationSum
     
     Page<EvaluationSummary> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
     
-    List<EvaluationSummary> findByUserIdAndMissionIdOrderByCreatedAtDesc(Long userId, Long missionId);
+    List<EvaluationSummary> findByUserIdAndMissionIdOrderByCreatedAtDesc(Long userId, String missionId);
     
     List<EvaluationSummary> findByStatus(AIEvaluation.EvaluationStatus status);
     
