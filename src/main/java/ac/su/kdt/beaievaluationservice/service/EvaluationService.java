@@ -121,21 +121,28 @@ public class EvaluationService {
             log.info("S3 Storage URL: {}", s3StorageUrl);
             log.info("Pre-Signed URL available: {}", preSignedUrl != null && !preSignedUrl.isEmpty());
             
-            // AI 평가 수행
-            log.info("=== CALLING GEMINI AI EVALUATION ===");
+            // AI 평가 수행 - 실제 데이터로 평가
+            log.info("=== CALLING GEMINI AI EVALUATION WITH REAL DATA ===");
             log.info("Code length: {} characters", event.getCode() != null ? event.getCode().length() : 0);
-            log.info("Statistics available: {}", event.getStatistics() != null);
+            log.info("Real execution data available: {}", event.getRealExecutionData() != null);
             
-            EvaluationResultDTO result = geminiEvaluationService.evaluateCode(
-                event.getCode(), 
-                event.getMissionType(),
-                event.getMissionId(),
-                event.getMissionObjective(),
-                event.getChecklist(),
-                s3StorageUrl,
-                preSignedUrl,
-                event.getStatistics()
-            );
+            EvaluationResultDTO result;
+            if (event.getRealExecutionData() != null) {
+                // 실제 실행 데이터가 있으면 새로운 평가 방식 사용
+                log.info("실제 데이터 기반 평가 시작: 명령어수={}", 
+                        event.getRealExecutionData().getStatistics() != null ? 
+                        event.getRealExecutionData().getStatistics().getTotalCommands() : 0);
+                result = geminiEvaluationService.evaluateCodeWithRealData(event);
+            } else {
+                // Fallback: 기존 방식 사용
+                log.warn("실제 데이터 비어있음 - fallback to legacy evaluation");
+                // 기존 평가 방식 (Fallback 용도)
+                result = geminiEvaluationService.evaluateCode(
+                    event.getCode(), 
+                    event.getMissionType(),
+                    event.getMissionId()
+                );
+            }
             
             log.info("=== AI EVALUATION COMPLETED ===");
             log.info("Overall Score: {}", result.getOverallScore());

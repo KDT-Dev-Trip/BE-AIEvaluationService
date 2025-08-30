@@ -2,7 +2,7 @@ package ac.su.kdt.beaievaluationservice.controller;
 
 import ac.su.kdt.beaievaluationservice.dto.request.EvaluationRequest;
 import ac.su.kdt.beaievaluationservice.dto.response.ApiResponse;
-import ac.su.kdt.beaievaluationservice.dto.response.EvaluationResponse;
+import ac.su.kdt.beaievaluationservice.dto.response.*;
 import ac.su.kdt.beaievaluationservice.entity.AIEvaluation;
 import ac.su.kdt.beaievaluationservice.entity.EvaluationSummary;
 import ac.su.kdt.beaievaluationservice.kafka.event.MissionCompletedEvent;
@@ -428,6 +428,83 @@ public class EvaluationController {
                     .body(ApiResponse.failure("평가 통계 조회 중 오류가 발생했습니다: " + e.getMessage()));
         }
     }
+    
+    /**
+     * 사용자 평가 대시보드 전체 데이터 조회
+     */
+    @Operation(
+        summary = "사용자 평가 대시보드",
+        description = "사용자의 전체 평가 대시보드 데이터를 조회합니다. " +
+                     "평가 요약, 최근 평가 결과, 성과 분석, 학습 진행도 등을 포함합니다."
+    )
+    @GetMapping("/user/{userId}/dashboard")
+    public ResponseEntity<ApiResponse<UserEvaluationDashboardDTO>> getUserEvaluationDashboard(
+            @Parameter(description = "사용자 ID", required = true)
+            @PathVariable String userId) {
+        log.info("Get user evaluation dashboard for userId: {}", userId);
+
+        try {
+            Long userIdLong = Long.parseLong(userId);
+            
+            // 기본 통계 조회
+            Long totalEvaluations = evaluationSummaryRepository.countTotalEvaluationsByUserId(userIdLong);
+            Long completedEvaluations = evaluationSummaryRepository.countCompletedEvaluationsByUserId(userIdLong);
+            Integer totalStamps = evaluationSummaryRepository.getTotalStampsByUserId(userIdLong);
+            
+            // 평가 요약
+            EvaluationSummaryDTO evaluationSummary = EvaluationSummaryDTO.builder()
+                    .totalEvaluations(totalEvaluations)
+                    .completedEvaluations(completedEvaluations)
+                    .totalStampsEarned(totalStamps)
+                    .build();
+            
+            // 최근 평가 결과 (가장 최근 평가 1개)
+            List<EvaluationSummary> recentSummaries = evaluationSummaryRepository.findByUserIdOrderByCreatedAtDesc(userIdLong);
+            RecentEvaluationResultDTO recentEvaluation = null;
+            if (!recentSummaries.isEmpty()) {
+                EvaluationSummary recent = recentSummaries.get(0);
+                recentEvaluation = buildRecentEvaluationResult(recent);
+            }
+            
+            // 성과 분석
+            PerformanceMetricsDTO performanceMetrics = buildPerformanceMetrics(userIdLong);
+            
+            // 학습 진행도
+            LearningProgressDTO learningProgress = buildLearningProgress(userIdLong);
+            
+            // 최근 활동 (최근 10개 평가 이력)
+            List<UserEvaluationDashboardDTO.EvaluationHistoryItemDTO> recentActivity = recentSummaries.stream()
+                    .limit(10)
+                    .map(summary -> UserEvaluationDashboardDTO.EvaluationHistoryItemDTO.builder()
+                            .score(summary.getOverallScore())
+                            .missionName(summary.getMissionTitle())
+                            .evaluationDate(summary.getCreatedAt())
+                            .build())
+                    .collect(Collectors.toList());
+            
+            // 전체 학습 통계
+            UserEvaluationDashboardDTO.OverallLearningStatsDTO overallStats = buildOverallLearningStats(userIdLong);
+            
+            UserEvaluationDashboardDTO dashboard = UserEvaluationDashboardDTO.builder()
+                    .evaluationSummary(evaluationSummary)
+                    .recentEvaluation(recentEvaluation)
+                    .performanceMetrics(performanceMetrics)
+                    .learningProgress(learningProgress)
+                    .recentActivity(recentActivity)
+                    .overallStats(overallStats)
+                    .build();
+            
+            return ResponseEntity.ok(ApiResponse.success("사용자 대시보드 데이터를 조회했습니다.", dashboard));
+
+        } catch (NumberFormatException e) {
+            return ResponseEntity.status(400)
+                    .body(ApiResponse.failure("잘못된 사용자 ID 형식입니다."));
+        } catch (Exception e) {
+            log.error("Failed to get user evaluation dashboard for userId: {}", userId, e);
+            return ResponseEntity.status(500)
+                    .body(ApiResponse.failure("대시보드 데이터 조회 중 오류가 발생했습니다: " + e.getMessage()));
+        }
+    }
 
     // Helper methods
     private MissionCompletedEvent convertToEvent(EvaluationRequest request) {
@@ -450,8 +527,9 @@ public class EvaluationController {
                 event.getUserId(), event.getMissionId(), event.getMissionAttemptId());
         
         // === S3 통합 필드들 ===
-        event.setMissionObjective(request.getMissionObjective());
-        event.setChecklist(request.getChecklist());
+        // MissionObjective와 Checklist는 제거됨 - evaluationCriteria로 대체
+        event.setEvaluationCriteria(request.getMissionObjective());
+        event.setMissionGuide("미션 가이드 없음");
         event.setS3StorageUrl(request.getS3StorageUrl());
         event.setS3PreSignedUrl(request.getS3PreSignedUrl());
         event.setStatistics(request.getStatistics());
@@ -460,11 +538,21 @@ public class EvaluationController {
     }
 
     private EvaluationResponse convertToResponse(AIEvaluation evaluation) {
+        // EvaluationSummary가 있는 경우 우선 사용 (더 완전한 정보)
+        Optional<EvaluationSummary> summaryOpt = evaluationSummaryRepository.findByMissionAttemptId(evaluation.getMissionAttemptId());
+        if (summaryOpt.isPresent()) {
+            return convertSummaryToResponse(summaryOpt.get());
+        }
+        
+        // EvaluationSummary가 없는 경우 AIEvaluation 정보만 사용
         EvaluationResponse.EvaluationResponseBuilder builder = EvaluationResponse.builder()
                 .evaluationId(evaluation.getId())
                 .missionAttemptId(evaluation.getMissionAttemptId())
                 .status(evaluation.getStatus().name())
                 .aiModelVersion(evaluation.getAiModelVersion())
+                .missionTitle(evaluation.getMissionTitle())
+                .missionType(evaluation.getMissionType())
+                .processingTimeMs(evaluation.getProcessingTimeMs())
                 .createdAt(evaluation.getCreatedAt())
                 .updatedAt(evaluation.getUpdatedAt())
                 .errorMessage(evaluation.getErrorMessage());
@@ -538,13 +626,119 @@ public class EvaluationController {
                 .missionAttemptId(summary.getMissionAttemptId())
                 .userId(String.valueOf(summary.getUserId()))
                 .status(summary.getStatus().name())
+                .aiModelVersion(summary.getAiEvaluation().getAiModelVersion())
+                // 기본 평가 점수들
                 .overallScore(summary.getOverallScore())
                 .codeQualityScore(summary.getCodeQualityScore())
                 .securityScore(summary.getSecurityScore())
                 .styleScore(summary.getStyleScore())
                 .feedback(summary.getFeedbackSummary())
+                // 추가 평가 지표들 (이전에 누락되었던 필드들)
+                .securityRiskLevel(summary.getSecurityRiskLevel())
+                .efficiencyGrade(summary.getEfficiencyGrade())
+                .bestPracticeScore(summary.getBestPracticeScore())
+                .reliabilityScore(summary.getReliabilityScore())
+                // 명령어 통계
+                .totalCommandCount(summary.getCommandsExecuted())
+                .significantCommandCount(summary.getSignificantCommands())
+                .errorCommandCount(summary.getErrorCommands())
+                // 미션 메타데이터
+                .missionTitle(summary.getMissionTitle())
+                .missionType(summary.getMissionType())
+                .missionDifficulty(summary.getMissionDifficulty())
+                // 처리 시간 및 타임스탬프
+                .processingTimeMs(summary.getEvaluationDurationMs())
                 .createdAt(summary.getCreatedAt())
                 .updatedAt(summary.getUpdatedAt())
+                .build();
+    }
+    
+    private RecentEvaluationResultDTO buildRecentEvaluationResult(EvaluationSummary summary) {
+        return RecentEvaluationResultDTO.builder()
+                .overallScore(summary.getOverallScore())
+                .correctnessScore(summary.getCorrectnessScore())
+                .efficiencyScore(summary.getEfficiencyScore())
+                .qualityScore(summary.getQualityScore())
+                .totalCommandCount(summary.getCommandsExecuted())
+                .significantCommandCount(summary.getSignificantCommands())
+                .errorCommandCount(summary.getErrorCommands())
+                .evaluationStartTime(summary.getCreatedAt())
+                .evaluationEndTime(summary.getUpdatedAt())
+                .securityRiskLevel(summary.getSecurityRiskLevel())
+                .categoryPerformances(List.of()) // JSON 파싱 후 추가 구현 필요
+                .build();
+    }
+    
+    private PerformanceMetricsDTO buildPerformanceMetrics(Long userId) {
+        List<Object[]> missionTypeData = evaluationSummaryRepository.getMissionTypePerformanceByUserId(userId);
+        List<PerformanceMetricsDTO.MissionTypePerformanceDTO> missionTypePerformances = missionTypeData.stream()
+                .map(data -> PerformanceMetricsDTO.MissionTypePerformanceDTO.builder()
+                        .missionType((String) data[0])
+                        .totalAttempts(((Long) data[1]).intValue())
+                        .averageScore((Double) data[2])
+                        .averageSuccessRate((Double) data[3] * 100)
+                        .build())
+                .collect(Collectors.toList());
+        
+        List<Object[]> individualMissionData = evaluationSummaryRepository.getIndividualMissionPerformanceByUserId(userId);
+        List<PerformanceMetricsDTO.IndividualMissionPerformanceDTO> individualMissionPerformances = individualMissionData.stream()
+                .map(data -> PerformanceMetricsDTO.IndividualMissionPerformanceDTO.builder()
+                        .missionId((String) data[0])
+                        .missionTitle((String) data[1])
+                        .attemptCount(((Long) data[2]).intValue())
+                        // averageScore field removed from DTO
+                        .successRate((Double) data[4] * 100)
+                        .difficulty((String) data[5])
+                        .averageCompletionTime(data[6] != null ? ((Long) data[6]).doubleValue() / (1000 * 60) : 0.0) // ms to minutes
+                        .build())
+                .collect(Collectors.toList());
+        
+        return PerformanceMetricsDTO.builder()
+                .missionTypePerformances(missionTypePerformances)
+                .individualMissionPerformances(individualMissionPerformances)
+                .build();
+    }
+    
+    private LearningProgressDTO buildLearningProgress(Long userId) {
+        Long completedCount = evaluationSummaryRepository.countCompletedEvaluationsByUserId(userId);
+        Double averageScore = evaluationSummaryRepository.getAverageScoreByUserId(userId);
+        Integer totalStamps = evaluationSummaryRepository.getTotalStampsByUserId(userId);
+        List<Integer> recentTrend = evaluationSummaryRepository.getRecentScoreTrendByUserId(userId);
+        
+        List<Object[]> difficultyData = evaluationSummaryRepository.getDifficultyPerformanceByUserId(userId);
+        List<LearningProgressDTO.DifficultyPerformanceDTO> difficultyPerformances = difficultyData.stream()
+                .map(data -> LearningProgressDTO.DifficultyPerformanceDTO.builder()
+                        .difficulty((String) data[0])
+                        .completedCount(((Long) data[1]).intValue())
+                        .averageScore((Double) data[2])
+                        .successRate((Double) data[3] * 100)
+                        .build())
+                .collect(Collectors.toList());
+        
+        return LearningProgressDTO.builder()
+                .completedMissions(completedCount.intValue())
+                .averageScore(averageScore != null ? averageScore : 0.0)
+                .totalStamps(totalStamps)
+                .recentScoreTrend(recentTrend)
+                .difficultyPerformances(difficultyPerformances)
+                .build();
+    }
+    
+    private UserEvaluationDashboardDTO.OverallLearningStatsDTO buildOverallLearningStats(Long userId) {
+        List<Object[]> statsData = evaluationSummaryRepository.getOverallLearningStatsByUserId(userId);
+        if (statsData.isEmpty()) {
+            return UserEvaluationDashboardDTO.OverallLearningStatsDTO.builder()
+                    .highestScore(0)
+                    .averageScore(0.0)
+                    .lowestScore(0)
+                    .build();
+        }
+        
+        Object[] stats = statsData.get(0);
+        return UserEvaluationDashboardDTO.OverallLearningStatsDTO.builder()
+                .highestScore(stats[0] != null ? (Integer) stats[0] : 0)
+                .averageScore(stats[1] != null ? (Double) stats[1] : 0.0)
+                .lowestScore(stats[2] != null ? (Integer) stats[2] : 0)
                 .build();
     }
 

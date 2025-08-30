@@ -16,7 +16,7 @@ scrape_configs:
     metrics_path: '/actuator/prometheus'
     scrape_interval: 15s
     static_configs:
-      - targets: ['be-ai-evaluation-service:8080']
+      - targets: ['be-ai-evaluation-service:8084']
     scrape_timeout: 10s
 
   - job_name: 'kafka'

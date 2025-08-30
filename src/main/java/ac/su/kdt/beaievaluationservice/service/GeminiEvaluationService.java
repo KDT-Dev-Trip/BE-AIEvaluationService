@@ -14,6 +14,7 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.HttpClientErrorException;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,6 +23,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import ac.su.kdt.beaievaluationservice.kafka.event.MissionCompletedEvent;
+import ac.su.kdt.beaievaluationservice.client.MissionDataClient;
+import ac.su.kdt.beaievaluationservice.client.EvaluationDataResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 
 // Gemini AI를 사용하여 코드 평가를 수행하는 서비스
@@ -35,6 +38,8 @@ public class GeminiEvaluationService {
     
     @Autowired(required = false)
     private MockS3DataService mockS3DataService;
+    
+    private final MissionDataClient missionDataClient;
     
     @Value("${gemini.api.key}")
     private String geminiApiKey;
@@ -55,56 +60,46 @@ public class GeminiEvaluationService {
     private int readTimeoutSeconds;
 
     /**
-     * 새로운 평가 방식: 미션 목표, S3 URL, 통계 정보를 포함하여 종합적 평가 수행
+     * 새로운 평가 방식: Kafka 이벤트에서 실제 실행 데이터를 받아서 종합적 평가 수행
      */
-    public EvaluationResultDTO evaluateCode(String code, String missionType, String missionId, 
-                                           String missionObjective, List<String> checklist,
-                                           String s3StorageUrl, String s3PreSignedUrl,
-                                           MissionCompletedEvent.SimpleStatistics statistics) {
-        log.info("Starting enhanced Gemini AI evaluation for missionId: {}, missionType: {}", missionId, missionType);
+    public EvaluationResultDTO evaluateCodeWithRealData(MissionCompletedEvent event) {
+        log.info("Starting Gemini AI evaluation with real execution data for missionId: {}, missionType: {}, attemptId: {}", 
+                event.getMissionId(), event.getMissionType(), event.getMissionAttemptId());
         
         try {
-            // S3 목업 데이터를 실제로 읽어서 프롬프트에 포함 (목업 모드)
-            String s3Data = null;
-            if (s3PreSignedUrl != null && !s3PreSignedUrl.isEmpty() && mockS3DataService != null) {
-                try {
-                    log.info("Attempting to read S3 mock data from URL: {}", s3PreSignedUrl.substring(0, Math.min(100, s3PreSignedUrl.length())));
-                    s3Data = mockS3DataService.readS3DataByPreSignedUrl(s3PreSignedUrl);
-                    
-                    if (s3Data != null && !s3Data.trim().isEmpty()) {
-                        log.info("Successfully read S3 mock data for evaluation, size: {} characters", s3Data.length());
-                    } else {
-                        log.warn("S3 mock data is null or empty");
-                        s3Data = null;
-                    }
-                } catch (IllegalArgumentException e) {
-                    log.warn("Invalid S3 Pre-Signed URL format: {}", e.getMessage());
-                    s3Data = null;
-                } catch (Exception e) {
-                    log.warn("Error reading S3 mock data: {} - {}", e.getClass().getSimpleName(), e.getMessage());
-                    s3Data = null;
-                }
+            // Kafka 이벤트에서 실제 실행 데이터 추출
+            MissionCompletedEvent.RealExecutionData realData = event.getRealExecutionData();
+            
+            if (realData != null && realData.getStatistics() != null) {
+                log.info("실제 실행 데이터 사용: 명령어수={}, 성공률={}%", 
+                        realData.getStatistics().getTotalCommands(),
+                        realData.getStatistics().getSuccessRate());
             } else {
-                if (s3PreSignedUrl == null || s3PreSignedUrl.isEmpty()) {
-                    log.debug("No S3 Pre-Signed URL provided");
-                } else if (mockS3DataService == null) {
-                    log.debug("MockS3DataService not available");
+                log.warn("실제 실행 데이터가 비어있음: attemptId={}", event.getMissionAttemptId());
+            }
+            
+            // 하위 호환성을 위한 S3 Mock 데이터 지원 유지
+            String s3Data = null;
+            if (event.getS3PreSignedUrl() != null && !event.getS3PreSignedUrl().isEmpty() && mockS3DataService != null) {
+                try {
+                    s3Data = mockS3DataService.readS3DataByPreSignedUrl(event.getS3PreSignedUrl());
+                    log.debug("S3 Mock 데이터도 fallback으로 사용: {} characters", s3Data != null ? s3Data.length() : 0);
+                } catch (Exception e) {
+                    log.debug("S3 Mock 데이터 조회 실패: {}", e.getMessage());
                 }
             }
             
-            String prompt = buildEnhancedEvaluationPrompt(code, missionType, missionId, 
-                                                         missionObjective, checklist,
-                                                         s3StorageUrl, s3PreSignedUrl, statistics, s3Data);
+            String prompt = buildEnhancedEvaluationPromptWithRealData(event, s3Data);
             String geminiResponse = callGeminiApi(prompt);
             
             return parseGeminiResponse(geminiResponse);
             
         } catch (RuntimeException e) {
             // RuntimeException은 이미 적절히 처리된 예외이므로 그대로 전파
-            log.error("RuntimeException during evaluation for missionId: {}", missionId, e);
+            log.error("RuntimeException during evaluation for missionId: {}", event.getMissionId(), e);
             throw e;
         } catch (Exception e) {
-            log.error("Error during evaluation for missionId: {}", missionId, e);
+            log.error("Error during evaluation for missionId: {}", event.getMissionId(), e);
             throw new RuntimeException("Evaluation process failed: " + e.getMessage(), e);
         }
     }
@@ -112,8 +107,69 @@ public class GeminiEvaluationService {
     /**
      * 기존 평가 방식 호환성을 위한 오버로드 메서드
      */
+    /**
+     * 기존 평가 방식 - 실제 Gemini API 호출
+     */
     public EvaluationResultDTO evaluateCode(String code, String missionType, String missionId) {
-        return evaluateCode(code, missionType, missionId, null, null, null, null, null);
+        log.info("Starting basic Gemini AI evaluation for missionId: {}", missionId);
+        
+        try {
+            String prompt = buildBasicEvaluationPrompt(code, missionType, missionId);
+            String geminiResponse = callGeminiApi(prompt);
+            return parseGeminiResponse(geminiResponse);
+            
+        } catch (Exception e) {
+            log.error("Error during basic evaluation for missionId: {}", missionId, e);
+            return createFallbackResult("AI 평가 중 오류가 발생했습니다: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 기본 평가를 위한 프롬프트 생성
+     */
+    private String buildBasicEvaluationPrompt(String code, String missionType, String missionId) {
+        return """
+            당신은 경험이 풍부한 DevOps 전문가입니다. 다음 코드를 분석하고 한국어로 상세한 피드백을 제공해주세요.
+            
+            미션 유형: %s
+            미션 ID: %s
+            
+            평가할 코드:
+            %s
+            
+            다음 JSON 형식으로 평가 결과를 제공해주세요 (모든 텍스트는 한국어로 작성):
+            {
+                "total_score": 85,
+                "correctness_score": 28,
+                "efficiency_score": 28,
+                "quality_score": 29,
+                "security_score": 85,
+                "style_score": 85,
+                "best_practice_score": 85,
+                "reliability_score": 85,
+                "overall_feedback": "전체적인 평가와 개선 권장사항을 한국어로 상세히 설명",
+                "correctness_feedback": "코드의 정확성 분석을 한국어로 설명",
+                "efficiency_feedback": "성능과 효율성 분석을 한국어로 설명", 
+                "quality_feedback": "코드 품질과 모범 사례 분석을 한국어로 설명",
+                "security_feedback": "보안 관련 분석을 한국어로 설명",
+                "style_feedback": "코드 스타일과 가독성 분석을 한국어로 설명",
+                "strengths": ["강점 1", "강점 2", "강점 3"],
+                "improvements": ["개선점 1", "개선점 2", "개선점 3"],
+                "next_steps": ["다음 단계 추천 1", "다음 단계 추천 2"]
+            }
+            
+            점수 기준:
+            - total_score: 0-100점 (전체 점수)
+            - correctness_score: 0-100점 (코드 정확성)
+            - efficiency_score: 0-100점 (성능 효율성)
+            - quality_score: 0-100점 (코드 품질)
+            - security_score: 0-100점 (보안)
+            - style_score: 0-100점 (스타일)
+            - best_practice_score: 0-100점 (모범 사례)
+            - reliability_score: 0-100점 (안정성)
+            
+            모든 피드백은 건설적이고 교육적이어야 하며, 학습자의 노력을 인정하면서도 구체적인 개선 방향을 제시해주세요.
+            """.formatted(missionType, missionId, code);
     }
     
     /**
@@ -136,7 +192,8 @@ public class GeminiEvaluationService {
     private String buildEnhancedEvaluationPrompt(String code, String missionType, String missionId,
                                                 String missionObjective, List<String> checklist,
                                                 String s3StorageUrl, String s3PreSignedUrl,
-                                                MissionCompletedEvent.SimpleStatistics statistics, String s3Data) {
+                                                MissionCompletedEvent.SimpleStatistics statistics, String s3Data,
+                                                EvaluationDataResponse missionData) {
         
         // === 시스템 프롬프트 구성 ===
         // AI 모델의 역할과 평가 기준을 정의하는 섹션
@@ -288,6 +345,92 @@ public class GeminiEvaluationService {
                 userPrompt.append("CRITICAL: 실제 로그 데이터에 기반한 구체적이고 상세한 평가를 제공하세요.\n");
                 userPrompt.append("각 명령어, 에러, 리소스 사용량에 대해 구체적인 수치와 함께 평가해야 합니다.\n");
             }
+        }
+        
+        // === [REAL EXECUTION DATA] 섹션 ===
+        // 미션 관리 서비스에서 수집된 실제 명령어 실행 데이터
+        if (missionData != null) {
+            userPrompt.append("\n[REAL EXECUTION DATA]\n");
+            
+            // 전체 통계
+            if (missionData.getStatistics() != null) {
+                var stats = missionData.getStatistics();
+                userPrompt.append("## Execution Statistics:\n");
+                userPrompt.append(String.format("- Total Commands: %d\n", stats.getTotalCommands()));
+                userPrompt.append(String.format("- Successful Commands: %d\n", stats.getSuccessfulCommands()));
+                userPrompt.append(String.format("- Failed Commands: %d\n", stats.getFailedCommands()));
+                userPrompt.append(String.format("- Success Rate: %.2f%%\n", stats.getSuccessRate()));
+                userPrompt.append(String.format("- Total Execution Time: %d ms\n\n", stats.getTotalExecutionTimeMs()));
+            }
+            
+            // 실제 명령어 실행 히스토리
+            if (missionData.getCommandHistory() != null && !missionData.getCommandHistory().isEmpty()) {
+                userPrompt.append("## Command Execution History:\n");
+                userPrompt.append("```\n");
+                
+                int count = 0;
+                for (var cmd : missionData.getCommandHistory()) {
+                    count++;
+                    userPrompt.append(String.format("[%d] %s\n", count, cmd.getExecutedAt()));
+                    userPrompt.append(String.format("Command: %s\n", cmd.getCommand()));
+                    userPrompt.append(String.format("Working Dir: %s\n", cmd.getWorkingDirectory()));
+                    userPrompt.append(String.format("Exit Code: %d\n", cmd.getExitCode() != null ? cmd.getExitCode() : -1));
+                    userPrompt.append(String.format("Duration: %d ms\n", cmd.getDurationMs() != null ? cmd.getDurationMs() : 0));
+                    
+                    if (cmd.getOutput() != null && !cmd.getOutput().trim().isEmpty()) {
+                        String output = cmd.getOutput().length() > 200 ? 
+                            cmd.getOutput().substring(0, 200) + "..." : cmd.getOutput();
+                        userPrompt.append(String.format("Output: %s\n", output));
+                    }
+                    userPrompt.append("---\n");
+                    
+                    // 처음 20개 명령어만 표시 (프롬프트 길이 제한)
+                    if (count >= 20) {
+                        userPrompt.append(String.format("... (%d more commands)\n", missionData.getCommandHistory().size() - 20));
+                        break;
+                    }
+                }
+                userPrompt.append("```\n\n");
+            }
+            
+            // 실패한 명령어들
+            if (missionData.getFailedCommands() != null && !missionData.getFailedCommands().isEmpty()) {
+                userPrompt.append("## Failed Commands Analysis:\n");
+                userPrompt.append("```\n");
+                
+                for (var failedCmd : missionData.getFailedCommands()) {
+                    userPrompt.append(String.format("Command: %s\n", failedCmd.getCommand()));
+                    userPrompt.append(String.format("Exit Code: %d\n", failedCmd.getExitCode()));
+                    userPrompt.append(String.format("Error Output: %s\n", 
+                        failedCmd.getOutput() != null ? failedCmd.getOutput().substring(0, Math.min(150, failedCmd.getOutput().length())) : "None"));
+                    userPrompt.append("---\n");
+                }
+                userPrompt.append("```\n\n");
+            }
+            
+            // 리소스 사용량
+            if (missionData.getResourceUsage() != null) {
+                var resource = missionData.getResourceUsage();
+                userPrompt.append("## Resource Usage:\n");
+                userPrompt.append(String.format("- Average CPU: %.2f%%\n", resource.getAverageCpuUsage() != null ? resource.getAverageCpuUsage() : 0.0));
+                userPrompt.append(String.format("- Max CPU: %.2f%%\n", resource.getMaxCpuUsage() != null ? resource.getMaxCpuUsage() : 0.0));
+                userPrompt.append(String.format("- Average Memory: %.2f MB\n", resource.getAverageMemoryUsage() != null ? resource.getAverageMemoryUsage() : 0.0));
+                userPrompt.append(String.format("- Max Memory: %.2f MB\n\n", resource.getMaxMemoryUsage() != null ? resource.getMaxMemoryUsage() : 0.0));
+            }
+            
+            // 중요한 파일들
+            if (missionData.getWorkspaceFiles() != null && !missionData.getWorkspaceFiles().isEmpty()) {
+                userPrompt.append("## Important Workspace Files:\n");
+                for (Map.Entry<String, String> file : missionData.getWorkspaceFiles().entrySet()) {
+                    userPrompt.append(String.format("### %s:\n", file.getKey()));
+                    userPrompt.append("```\n");
+                    userPrompt.append(file.getValue());
+                    userPrompt.append("\n```\n\n");
+                }
+            }
+            
+            userPrompt.append("IMPORTANT: 위의 실제 실행 데이터를 기반으로 구체적이고 객관적인 평가를 수행하세요.\n");
+            userPrompt.append("각 명령어의 성공/실패, 실행 시간, 리소스 사용량 등을 종합적으로 분석하여 점수를 부여하세요.\n\n");
         }
         
         // === [Optional Aggregates] 섹션 ===
@@ -450,7 +593,191 @@ public class GeminiEvaluationService {
      * 기존 평가 프롬프트 (호환성을 위해 유지)
      */
     private String buildEvaluationPrompt(String code, String missionType, String missionId) {
-        return buildEnhancedEvaluationPrompt(code, missionType, missionId, null, null, null, null, null, null);
+        return buildEnhancedEvaluationPrompt(code, missionType, missionId, null, null, null, null, null, null, null);
+    }
+    
+    /**
+     * 실제 실행 데이터를 포함한 향상된 평가 프롬프트 생성
+     */
+    private String buildEnhancedEvaluationPromptWithRealData(MissionCompletedEvent event, String s3Data) {
+        StringBuilder systemPrompt = new StringBuilder();
+        systemPrompt.append("""
+            당신은 경험이 풍부한 DevOps 전문가입니다. 학습자의 실습 결과를 평가하고 건설적인 피드백을 제공하는 것이 목표입니다.
+            
+            CRITICAL INSTRUCTIONS:
+            1. 제공된 실제 실행 데이터를 바탕으로 정확한 평가를 수행하세요.
+            2. 모든 명령어 실행 결과와 리소스 사용량을 고려하세요.
+            3. 점수는 실제 성과에 바탕해 객관적으로 부여하세요.
+            4. 건설적이고 구체적인 개선사항을 제시하세요.
+            
+            EVALUATION CRITERIA (1-5 점수):
+            - correctness (1~5): 명령어 성공/실패 비율과 목표 달성도
+            - efficiency (1~5): 리소스 사용 효율성과 실행 시간
+            - quality (1~5): 작업 품질과 DevOps 모범사례 준수
+            """);
+        
+        StringBuilder userPrompt = new StringBuilder();
+        userPrompt.append("[MISSION INFORMATION]\n");
+        userPrompt.append(String.format("Mission: %s\n", event.getMissionTitle()));
+        userPrompt.append(String.format("Type: %s\n", event.getMissionType()));
+        
+        // 학습 목표 및 평가 기준 추가
+        if (event.getEvaluationCriteria() != null && !event.getEvaluationCriteria().trim().isEmpty()) {
+            userPrompt.append("\n[학습 목표 및 평가 기준]\n");
+            userPrompt.append("이 미션의 학습 목표를 반드시 평가해주세요:\n");
+            userPrompt.append(parseEvaluationCriteria(event.getEvaluationCriteria()));
+            userPrompt.append("\n");
+        }
+        
+        // 미션 가이드 추가
+        if (event.getMissionGuide() != null && !event.getMissionGuide().trim().isEmpty()) {
+            userPrompt.append("[미션 가이드]\n");
+            String guide = event.getMissionGuide();
+            if (guide.length() > 500) {
+                guide = guide.substring(0, 500) + "...";
+            }
+            userPrompt.append(guide);
+            userPrompt.append("\n\n");
+        }
+        
+        userPrompt.append("\n[SUBMITTED CODE]\n");
+        userPrompt.append("```\n");
+        userPrompt.append(event.getCode() != null ? event.getCode() : "No code submitted");
+        userPrompt.append("\n```\n\n");
+        
+        // 실제 실행 데이터 추가
+        MissionCompletedEvent.RealExecutionData realData = event.getRealExecutionData();
+        if (realData != null) {
+            userPrompt.append("[REAL EXECUTION DATA]\n");
+            
+            // 전체 통계
+            if (realData.getStatistics() != null) {
+                var stats = realData.getStatistics();
+                userPrompt.append("## Execution Statistics:\n");
+                userPrompt.append(String.format("- Total Commands: %d\n", stats.getTotalCommands()));
+                userPrompt.append(String.format("- Successful Commands: %d\n", stats.getSuccessfulCommands()));
+                userPrompt.append(String.format("- Failed Commands: %d\n", stats.getFailedCommands()));
+                userPrompt.append(String.format("- Success Rate: %.2f%%\n", stats.getSuccessRate()));
+                userPrompt.append(String.format("- Total Execution Time: %d ms\n\n", stats.getTotalExecutionTimeMs()));
+            }
+            
+            // 명령어 실행 히스토리
+            if (realData.getCommandHistory() != null && !realData.getCommandHistory().isEmpty()) {
+                userPrompt.append("## Command Execution History:\n");
+                userPrompt.append("```\n");
+                
+                int count = 0;
+                for (var cmd : realData.getCommandHistory()) {
+                    count++;
+                    userPrompt.append(String.format("[%d] %s\n", count, cmd.getExecutedAt()));
+                    userPrompt.append(String.format("Command: %s\n", cmd.getCommand()));
+                    userPrompt.append(String.format("Working Dir: %s\n", cmd.getWorkingDirectory()));
+                    userPrompt.append(String.format("Exit Code: %d\n", cmd.getExitCode() != null ? cmd.getExitCode() : -1));
+                    userPrompt.append(String.format("Duration: %d ms\n", cmd.getDurationMs() != null ? cmd.getDurationMs() : 0));
+                    
+                    if (cmd.getOutput() != null && !cmd.getOutput().trim().isEmpty()) {
+                        String output = cmd.getOutput().length() > 200 ? 
+                            cmd.getOutput().substring(0, 200) + "..." : cmd.getOutput();
+                        userPrompt.append(String.format("Output: %s\n", output));
+                    }
+                    userPrompt.append("---\n");
+                    
+                    // 첫 20개 명령어만 표시
+                    if (count >= 20) {
+                        userPrompt.append(String.format("... (%d more commands)\n", realData.getCommandHistory().size() - 20));
+                        break;
+                    }
+                }
+                userPrompt.append("```\n\n");
+            }
+            
+            // 실패한 명령어들
+            if (realData.getFailedCommands() != null && !realData.getFailedCommands().isEmpty()) {
+                userPrompt.append("## Failed Commands Analysis:\n");
+                userPrompt.append("```\n");
+                
+                for (var failedCmd : realData.getFailedCommands()) {
+                    userPrompt.append(String.format("Command: %s\n", failedCmd.getCommand()));
+                    userPrompt.append(String.format("Exit Code: %d\n", failedCmd.getExitCode()));
+                    userPrompt.append(String.format("Error Output: %s\n", 
+                        failedCmd.getOutput() != null ? failedCmd.getOutput().substring(0, Math.min(150, failedCmd.getOutput().length())) : "None"));
+                    userPrompt.append("---\n");
+                }
+                userPrompt.append("```\n\n");
+            }
+            
+            // 리소스 사용량
+            if (realData.getResourceUsage() != null) {
+                var resource = realData.getResourceUsage();
+                userPrompt.append("## Resource Usage:\n");
+                userPrompt.append(String.format("- Average CPU: %.2f%%\n", resource.getAverageCpuUsage() != null ? resource.getAverageCpuUsage() : 0.0));
+                userPrompt.append(String.format("- Max CPU: %.2f%%\n", resource.getMaxCpuUsage() != null ? resource.getMaxCpuUsage() : 0.0));
+                userPrompt.append(String.format("- Average Memory: %.2f MB\n", resource.getAverageMemoryUsage() != null ? resource.getAverageMemoryUsage() : 0.0));
+                userPrompt.append(String.format("- Max Memory: %.2f MB\n\n", resource.getMaxMemoryUsage() != null ? resource.getMaxMemoryUsage() : 0.0));
+            }
+            
+            // 워크스페이스 파일들
+            if (realData.getWorkspaceFiles() != null && !realData.getWorkspaceFiles().isEmpty()) {
+                userPrompt.append("## Important Workspace Files:\n");
+                for (var fileEntry : realData.getWorkspaceFiles().entrySet()) {
+                    userPrompt.append(String.format("### %s:\n", fileEntry.getKey()));
+                    userPrompt.append("```\n");
+                    userPrompt.append(fileEntry.getValue());
+                    userPrompt.append("\n```\n\n");
+                }
+            }
+            
+            userPrompt.append("IMPORTANT: 위의 실제 실행 데이터를 기반으로 구체적이고 객관적인 평가를 수행하세요.\n");
+            userPrompt.append("각 명령어의 성공/실패, 실행 시간, 리소스 사용량 등을 종합적으로 분석하여 점수를 부여하세요.\n");
+            userPrompt.append("특히 학습 목표별로 실제 명령어 실행 결과를 매칭하여 달성도를 평가하세요.\n\n");
+        }
+        
+        // S3 데이터 fallback 지원
+        if (s3Data != null && !s3Data.trim().isEmpty()) {
+            userPrompt.append("[ADDITIONAL S3 DATA (FALLBACK)]\n");
+            userPrompt.append("```json\n");
+            userPrompt.append(s3Data);
+            userPrompt.append("\n```\n\n");
+        }
+        
+        userPrompt.append("""
+            [학습 목표 평가 필수]
+            위에 제시된 학습 목표(evaluationCriteria)를 기준으로 각 목표별 달성도를 평가하세요.
+            실제 실행된 명령어와 결과물을 분석하여 각 학습 목표가 얼마나 달성되었는지 판단하세요.
+            
+            [EVALUATION REQUIREMENTS]
+            다음 형식으로 JSON 응답을 제공하세요:
+            {
+              "overall_score": 전체 점수 (15점 만점),
+              "learning_objectives_evaluation": [
+                {
+                  "objective": "학습 목표 명칭",
+                  "achievement_rate": 0-100,
+                  "evidence": "달성 근거 (실제 명령어 또는 결과물)",
+                  "feedback": "구체적인 피드백"
+                }
+              ],
+              "overall_objective_achievement": 0-100,
+              "scores": {
+                "correctness": {
+                  "score": 1-5,
+                  "feedback": "상세 피드백"
+                },
+                "efficiency": {
+                  "score": 1-5,
+                  "feedback": "효율성 피드백"
+                },
+                "quality": {
+                  "score": 1-5,
+                  "feedback": "품질 피드백"
+                }
+              },
+              "feedback": "종합 피드백",
+              "detailed_analysis": "상세 분석"
+            }
+            """);
+        
+        return systemPrompt.toString() + "\n\n" + userPrompt.toString();
     }
     
     private String callGeminiApi(String prompt) {
@@ -610,9 +937,11 @@ public class GeminiEvaluationService {
             // 새로운 DevOps 채점관 형식인지 확인
             if (parsedJson.has("total_score")) {
                 log.info("Parsing DevOps evaluation response format");
+                log.debug("DevOps JSON content: {}", jsonContent);
                 return parseDevOpsEvaluationResponse(parsedJson);
             } else {
                 log.info("Parsing legacy evaluation response format");
+                log.debug("Legacy JSON content: {}", jsonContent);
                 // 기존 형식으로 파싱
                 return objectMapper.readValue(jsonContent, EvaluationResultDTO.class);
             }
@@ -633,6 +962,138 @@ public class GeminiEvaluationService {
     private EvaluationResultDTO parseDevOpsEvaluationResponse(JsonNode devOpsResponse) {
         EvaluationResultDTO result = new EvaluationResultDTO();
         
+        // 새로운 형식의 점수들 파싱
+        int totalScore = devOpsResponse.path("total_score").asInt();
+        result.setOverallScore(totalScore);
+        
+        // 모범사례 점수와 신뢰도 점수 설정
+        result.setBestPracticeScore(devOpsResponse.path("best_practice_score").asInt());
+        result.setReliabilityScore(devOpsResponse.path("reliability_score").asInt());
+        
+        // 보안 위험도 설정 (점수에 따라 등급 결정)
+        int securityScore = devOpsResponse.path("security_score").asInt();
+        if (securityScore >= 90) {
+            result.setSecurityRiskLevel("Low");
+        } else if (securityScore >= 70) {
+            result.setSecurityRiskLevel("Medium");
+        } else {
+            result.setSecurityRiskLevel("High");
+        }
+        
+        // 효율성 등급 설정 (점수에 따라 등급 결정)
+        int efficiencyScore = devOpsResponse.path("efficiency_score").asInt();
+        if (efficiencyScore >= 90) {
+            result.setEfficiencyGrade("A");
+        } else if (efficiencyScore >= 80) {
+            result.setEfficiencyGrade("B");
+        } else if (efficiencyScore >= 70) {
+            result.setEfficiencyGrade("C");
+        } else if (efficiencyScore >= 60) {
+            result.setEfficiencyGrade("D");
+        } else {
+            result.setEfficiencyGrade("F");
+        }
+        
+        // CodeQuality 객체 생성 및 설정
+        EvaluationResultDTO.CodeQualityScore codeQuality = new EvaluationResultDTO.CodeQualityScore();
+        codeQuality.setScore(devOpsResponse.path("quality_score").asInt());
+        codeQuality.setFeedback(devOpsResponse.path("quality_feedback").asText());
+        result.setCodeQuality(codeQuality);
+        
+        // Security 객체 생성 및 설정  
+        EvaluationResultDTO.SecurityScore security = new EvaluationResultDTO.SecurityScore();
+        security.setScore(devOpsResponse.path("security_score").asInt());
+        security.setFeedback(devOpsResponse.path("security_feedback").asText());
+        security.setRiskLevel(result.getSecurityRiskLevel());
+        security.setVulnerabilities("보안 취약점 분석 완료");
+        security.setRecommendations("보안 모범 사례 준수 권장");
+        result.setSecurity(security);
+        
+        // Style 객체 생성 및 설정
+        EvaluationResultDTO.StyleScore style = new EvaluationResultDTO.StyleScore();
+        style.setScore(devOpsResponse.path("style_score").asInt());
+        style.setFeedback(devOpsResponse.path("style_feedback").asText());
+        style.setStyleIssues("코드 스타일 및 구조 분석 완료");
+        style.setImprovements("가독성과 유지보수성 향상 권장");
+        style.setCategory("DevOps Configuration");
+        result.setStyle(style);
+        
+        // 피드백 설정
+        String overallFeedback = devOpsResponse.path("overall_feedback").asText();
+        result.setFeedback(overallFeedback);
+        
+        // 세부 피드백들을 결합하여 상세 분석 생성
+        StringBuilder detailedFeedback = new StringBuilder();
+        detailedFeedback.append("=== 종합 평가 ===\n");
+        detailedFeedback.append(overallFeedback).append("\n\n");
+        
+        detailedFeedback.append("=== 세부 평가 ===\n");
+        
+        String correctnessFeedback = devOpsResponse.path("correctness_feedback").asText();
+        if (!correctnessFeedback.isEmpty()) {
+            detailedFeedback.append("📋 정확성 평가: ").append(devOpsResponse.path("correctness_score").asInt()).append("점\n");
+            detailedFeedback.append(correctnessFeedback).append("\n\n");
+        }
+        
+        String efficiencyFeedback = devOpsResponse.path("efficiency_feedback").asText();
+        if (!efficiencyFeedback.isEmpty()) {
+            detailedFeedback.append("⚡ 효율성 평가: ").append(devOpsResponse.path("efficiency_score").asInt()).append("점\n");
+            detailedFeedback.append(efficiencyFeedback).append("\n\n");
+        }
+        
+        String qualityFeedback = devOpsResponse.path("quality_feedback").asText();
+        if (!qualityFeedback.isEmpty()) {
+            detailedFeedback.append("🎯 품질 평가: ").append(codeQuality.getScore()).append("점\n");
+            detailedFeedback.append(qualityFeedback).append("\n\n");
+        }
+        
+        String securityFeedback = devOpsResponse.path("security_feedback").asText();
+        if (!securityFeedback.isEmpty()) {
+            detailedFeedback.append("🔒 보안 평가: ").append(security.getScore()).append("점\n");
+            detailedFeedback.append(securityFeedback).append("\n\n");
+        }
+        
+        String styleFeedback = devOpsResponse.path("style_feedback").asText();
+        if (!styleFeedback.isEmpty()) {
+            detailedFeedback.append("🎨 스타일 평가: ").append(style.getScore()).append("점\n");
+            detailedFeedback.append(styleFeedback).append("\n\n");
+        }
+        
+        // 강점과 개선점 파싱
+        JsonNode strengths = devOpsResponse.path("strengths");
+        if (strengths.isArray() && strengths.size() > 0) {
+            detailedFeedback.append("=== 강점 ===\n");
+            for (JsonNode strength : strengths) {
+                detailedFeedback.append("✅ ").append(strength.asText()).append("\n");
+            }
+            detailedFeedback.append("\n");
+        }
+        
+        JsonNode improvements = devOpsResponse.path("improvements");
+        if (improvements.isArray() && improvements.size() > 0) {
+            detailedFeedback.append("=== 개선점 ===\n");
+            for (JsonNode improvement : improvements) {
+                detailedFeedback.append("🔧 ").append(improvement.asText()).append("\n");
+            }
+            detailedFeedback.append("\n");
+        }
+        
+        JsonNode nextSteps = devOpsResponse.path("next_steps");
+        if (nextSteps.isArray() && nextSteps.size() > 0) {
+            detailedFeedback.append("=== 다음 단계 추천 ===\n");
+            for (JsonNode step : nextSteps) {
+                detailedFeedback.append("🚀 ").append(step.asText()).append("\n");
+            }
+        }
+        
+        result.setDetailedAnalysis(detailedFeedback.toString());
+        
+        return result;
+    }
+    
+    private EvaluationResultDTO parseOldDevOpsEvaluationResponse(JsonNode devOpsResponse) {
+        EvaluationResultDTO result = new EvaluationResultDTO();
+        
         // 총점 계산 (15점 만점을 100점 만점으로 변환)
         int totalScore = devOpsResponse.path("total_score").asInt();
         int overallScore = (int) Math.round(totalScore * 100.0 / 15.0);
@@ -640,9 +1101,51 @@ public class GeminiEvaluationService {
         
         // 피드백 설정
         result.setFeedback(devOpsResponse.path("feedback").asText());
+
+        // 학습 목표 평가 결과 파싱
+        JsonNode learningObjectivesEval = devOpsResponse.path("learning_objectives_evaluation");
+        if (learningObjectivesEval.isArray() && learningObjectivesEval.size() > 0) {
+            List<EvaluationResultDTO.LearningObjectiveResult> objectives = new ArrayList<>();
+            Map<String, Integer> objectiveScores = new HashMap<>();
+            Map<String, String> objectiveFeedback = new HashMap<>();
+            
+            for (JsonNode objNode : learningObjectivesEval) {
+                EvaluationResultDTO.LearningObjectiveResult objResult = new EvaluationResultDTO.LearningObjectiveResult();
+                objResult.setObjective(objNode.path("objective").asText());
+                objResult.setAchievementRate(objNode.path("achievement_rate").asInt());
+                objResult.setEvidence(objNode.path("evidence").asText());
+                objResult.setFeedback(objNode.path("feedback").asText());
+                
+                objectives.add(objResult);
+                objectiveScores.put(objResult.getObjective(), objResult.getAchievementRate());
+                objectiveFeedback.put(objResult.getObjective(), objResult.getFeedback());
+            }
+            
+            result.setLearningObjectivesEvaluation(objectives);
+            result.setLearningObjectiveScores(objectiveScores);
+            result.setObjectiveFeedback(objectiveFeedback);
+        }
+        
+        // 전체 학습 목표 달성률
+        int overallObjectiveAchievement = devOpsResponse.path("overall_objective_achievement").asInt(0);
+        result.setOverallObjectiveAchievement(overallObjectiveAchievement);
         
         // 상세 분석 설정 (모든 확장 데이터를 결합)
         StringBuilder detailedAnalysis = new StringBuilder();
+        
+        // === 학습 목표 달성도 분석 ===
+        if (result.getLearningObjectivesEvaluation() != null && !result.getLearningObjectivesEvaluation().isEmpty()) {
+            detailedAnalysis.append("=== 학습 목표 달성도 분석 ===\n");
+            detailedAnalysis.append(String.format("전체 달성률: %d%%\n\n", result.getOverallObjectiveAchievement()));
+            
+            for (EvaluationResultDTO.LearningObjectiveResult obj : result.getLearningObjectivesEvaluation()) {
+                detailedAnalysis.append(String.format("🎯 %s\n", obj.getObjective()));
+                detailedAnalysis.append(String.format("  • 달성도: %d%%\n", obj.getAchievementRate()));
+                detailedAnalysis.append(String.format("  • 근거: %s\n", obj.getEvidence()));
+                detailedAnalysis.append(String.format("  • 피드백: %s\n\n", obj.getFeedback()));
+            }
+            detailedAnalysis.append("\n");
+        }
         
         // === 핵심 명령어 분석 섹션 ===
         JsonNode coreCommandsAnalysis = devOpsResponse.path("core_commands_analysis");
@@ -751,10 +1254,10 @@ public class GeminiEvaluationService {
         }
         
         // === 개선 제안 섹션 ===
-        JsonNode improvements = devOpsResponse.path("improvements");
-        if (improvements.isArray() && improvements.size() > 0) {
+        JsonNode improvementsLegacy = devOpsResponse.path("improvements");
+        if (improvementsLegacy.isArray() && improvementsLegacy.size() > 0) {
             detailedAnalysis.append("=== 전반적 개선 제안 ===\n");
-            for (JsonNode improvement : improvements) {
+            for (JsonNode improvement : improvementsLegacy) {
                 detailedAnalysis.append("• ").append(improvement.asText()).append("\n");
             }
             detailedAnalysis.append("\n");
@@ -913,5 +1416,78 @@ public class GeminiEvaluationService {
         result.setStyle(style);
         
         return result;
+    }
+    
+    /**
+     * 평가 기준 JSON을 파싱하여 읽기 쉬운 형태로 변환
+     */
+    private String parseEvaluationCriteria(String evaluationCriteria) {
+        if (evaluationCriteria == null || evaluationCriteria.trim().isEmpty()) {
+            return "평가 기준이 없습니다.";
+        }
+        
+        try {
+            // JSON 형태인 경우 파싱 시도
+            JsonNode criteriaNode = objectMapper.readTree(evaluationCriteria);
+            StringBuilder parsed = new StringBuilder();
+            
+            // criteria 배열이 있는 경우
+            if (criteriaNode.has("criteria") && criteriaNode.get("criteria").isArray()) {
+                JsonNode criteriaArray = criteriaNode.get("criteria");
+                for (int i = 0; i < criteriaArray.size(); i++) {
+                    JsonNode criterion = criteriaArray.get(i);
+                    parsed.append(String.format("%d. ", i + 1));
+                    
+                    if (criterion.isTextual()) {
+                        parsed.append(criterion.asText());
+                    } else if (criterion.has("objective")) {
+                        parsed.append(criterion.get("objective").asText());
+                        if (criterion.has("description")) {
+                            parsed.append(" - ").append(criterion.get("description").asText());
+                        }
+                    } else {
+                        parsed.append(criterion.toString());
+                    }
+                    parsed.append("\n");
+                }
+            }
+            // objectives 배열이 있는 경우
+            else if (criteriaNode.has("objectives") && criteriaNode.get("objectives").isArray()) {
+                JsonNode objectivesArray = criteriaNode.get("objectives");
+                for (int i = 0; i < objectivesArray.size(); i++) {
+                    JsonNode objective = objectivesArray.get(i);
+                    parsed.append(String.format("%d. ", i + 1));
+                    
+                    if (objective.isTextual()) {
+                        parsed.append(objective.asText());
+                    } else if (objective.has("title")) {
+                        parsed.append(objective.get("title").asText());
+                        if (objective.has("details")) {
+                            parsed.append(" - ").append(objective.get("details").asText());
+                        }
+                    } else {
+                        parsed.append(objective.toString());
+                    }
+                    parsed.append("\n");
+                }
+            }
+            // 단순 텍스트 배열인 경우
+            else if (criteriaNode.isArray()) {
+                for (int i = 0; i < criteriaNode.size(); i++) {
+                    parsed.append(String.format("%d. %s\n", i + 1, criteriaNode.get(i).asText()));
+                }
+            }
+            // 그 외의 경우 원본 반환
+            else {
+                return evaluationCriteria;
+            }
+            
+            return parsed.toString();
+            
+        } catch (Exception e) {
+            // JSON 파싱 실패 시 원본 텍스트 반환
+            log.debug("평가 기준 JSON 파싱 실패, 원본 텍스트 사용: {}", e.getMessage());
+            return evaluationCriteria;
+        }
     }
 }

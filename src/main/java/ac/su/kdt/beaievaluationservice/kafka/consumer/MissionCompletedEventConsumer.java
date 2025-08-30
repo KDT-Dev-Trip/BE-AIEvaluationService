@@ -23,7 +23,7 @@ public class MissionCompletedEventConsumer {
     private final EvaluationService evaluationService;
     
     @KafkaListener(
-        topics = "mission.completed", 
+        topics = "${kafka.topics.mission-completed}", 
         groupId = "ai-evaluation-group",
         containerFactory = "kafkaListenerContainerFactory"
     )

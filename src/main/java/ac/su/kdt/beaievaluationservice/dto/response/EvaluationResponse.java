@@ -42,6 +42,25 @@ public class EvaluationResponse {
     // 처리 시간
     private Long processingTimeMs;
     
+    // 새로운 상세 평가 지표들
+    private String securityRiskLevel; // Low, Medium, High
+    private String efficiencyGrade; // A, B, C, D, F
+    private Integer bestPracticeScore; // 0-100
+    private Integer reliabilityScore; // 0-100
+    
+    // 명령어 통계
+    private Integer totalCommandCount;
+    private Integer significantCommandCount;
+    private Integer errorCommandCount;
+    
+    // 획득 스탬프
+    private Integer stampsEarned;
+    
+    // 미션 정보
+    private String missionTitle;
+    private String missionType;
+    private String missionDifficulty;
+    
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createdAt;
     

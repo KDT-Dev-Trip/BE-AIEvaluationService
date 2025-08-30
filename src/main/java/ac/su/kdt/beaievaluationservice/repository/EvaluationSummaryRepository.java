@@ -40,4 +40,44 @@ public interface EvaluationSummaryRepository extends JpaRepository<EvaluationSum
 
     List<EvaluationSummary> findByUserIdOrderByCreatedAtDesc(Long userId);
 
+    // 대시보드용 통계 쿼리들
+    @Query("SELECT COUNT(es) FROM EvaluationSummary es WHERE es.userId = :userId")
+    Long countTotalEvaluationsByUserId(@Param("userId") Long userId);
+    
+    @Query("SELECT COUNT(es) FROM EvaluationSummary es WHERE es.userId = :userId AND es.status = 'COMPLETED'")
+    Long countCompletedEvaluationsByUserId(@Param("userId") Long userId);
+    
+    @Query("SELECT COALESCE(SUM(es.stampsEarned), 0) FROM EvaluationSummary es WHERE es.userId = :userId AND es.status = 'COMPLETED'")
+    Integer getTotalStampsByUserId(@Param("userId") Long userId);
+    
+    // 미션 타입별 성과 분석
+    @Query("SELECT es.missionType, COUNT(es), AVG(es.overallScore), AVG(CASE WHEN es.overallScore >= 70 THEN 1.0 ELSE 0.0 END) " +
+           "FROM EvaluationSummary es WHERE es.userId = :userId AND es.status = 'COMPLETED' " +
+           "GROUP BY es.missionType")
+    List<Object[]> getMissionTypePerformanceByUserId(@Param("userId") Long userId);
+    
+    // 개별 미션별 성과 분석
+    @Query("SELECT es.missionId, es.missionTitle, COUNT(es), AVG(es.overallScore), " +
+           "AVG(CASE WHEN es.overallScore >= 70 THEN 1.0 ELSE 0.0 END), es.missionDifficulty, " +
+           "AVG(es.totalExecutionTimeMs) " +
+           "FROM EvaluationSummary es WHERE es.userId = :userId " +
+           "GROUP BY es.missionId, es.missionTitle, es.missionDifficulty")
+    List<Object[]> getIndividualMissionPerformanceByUserId(@Param("userId") Long userId);
+    
+    // 최근 트렌드 분석 (최근 10개 평가)
+    @Query("SELECT es.overallScore FROM EvaluationSummary es WHERE es.userId = :userId AND es.status = 'COMPLETED' " +
+           "ORDER BY es.createdAt DESC LIMIT 10")
+    List<Integer> getRecentScoreTrendByUserId(@Param("userId") Long userId);
+    
+    // 난이도별 성과 분석
+    @Query("SELECT es.missionDifficulty, COUNT(es), AVG(es.overallScore), AVG(CASE WHEN es.overallScore >= 70 THEN 1.0 ELSE 0.0 END) " +
+           "FROM EvaluationSummary es WHERE es.userId = :userId AND es.status = 'COMPLETED' " +
+           "GROUP BY es.missionDifficulty")
+    List<Object[]> getDifficultyPerformanceByUserId(@Param("userId") Long userId);
+    
+    // 전체 학습 통계
+    @Query("SELECT MAX(es.overallScore), AVG(es.overallScore), MIN(es.overallScore) " +
+           "FROM EvaluationSummary es WHERE es.userId = :userId AND es.status = 'COMPLETED'")
+    List<Object[]> getOverallLearningStatsByUserId(@Param("userId") Long userId);
+
 }

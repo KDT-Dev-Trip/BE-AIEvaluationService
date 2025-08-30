@@ -109,6 +109,30 @@ public class EvaluationSummary {
     @Column(name = "points_awarded")
     private Integer pointsAwarded = 0;
 
+    // 보안 위험도 분석 (Low, Medium, High)
+    @Column(name = "security_risk_level", length = 10)
+    private String securityRiskLevel;
+    
+    // 카테고리별 성능 지표
+    @Column(name = "category_performance", columnDefinition = "JSON")
+    private String categoryPerformance;
+    
+    // 명령어 분석 결과 (JSON)
+    @Column(name = "command_analysis_details", columnDefinition = "JSON")
+    private String commandAnalysisDetails;
+    
+    // 효율성 등급 (A, B, C, D, F)
+    @Column(name = "efficiency_grade", length = 1)
+    private String efficiencyGrade;
+    
+    // 모범사례 점수 (0-100)
+    @Column(name = "best_practice_score")
+    private Integer bestPracticeScore;
+    
+    // 신뢰도 점수 (0-100)
+    @Column(name = "reliability_score")
+    private Integer reliabilityScore;
+
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "ai_evaluation_id", referencedColumnName = "id")
     private AIEvaluation aiEvaluation;
