@@ -562,34 +562,45 @@ public class EvaluationController {
             try {
                 JsonNode resultJson = objectMapper.readTree(evaluation.getEvaluationResult());
                 
-                // 새로운 형식 확인 (correctness, efficiency, quality 기반)
+                // 새로운 형식 확인 (DevOps 채점관 형식)
                 if (resultJson.has("total_score")) {
-                    // 새로운 DevOps 채점관 형식
-                    int totalScore = resultJson.path("total_score").asInt();
-                    // 15점 만점을 100점 만점으로 변환 (총점 * 100 / 15)
-                    int convertedScore = (int) Math.round(totalScore * 100.0 / 15.0);
+                    // 새로운 DevOps 채점관 형식 - 실제 JSON 구조에 맞게 매핑
+                    builder.overallScore(resultJson.path("total_score").asInt())
+                           .codeQualityScore(resultJson.path("quality_score").asInt())
+                           .securityScore(resultJson.path("security_score").asInt())
+                           .styleScore(resultJson.path("style_score").asInt())
+                           .feedback(resultJson.path("overall_feedback").asText())
+                           // 추가 DevOps 지표들
+                           .bestPracticeScore(resultJson.path("best_practice_score").asInt())
+                           .reliabilityScore(resultJson.path("reliability_score").asInt());
                     
-                    builder.overallScore(convertedScore)
-                           .feedback(resultJson.path("feedback").asText());
-                    
-                    // 개별 점수들 (5점 만점을 100점 만점으로 변환)
-                    JsonNode correctness = resultJson.path("correctness");
-                    if (!correctness.isMissingNode()) {
-                        int score = (int) Math.round(correctness.path("score").asInt() * 100.0 / 5.0);
-                        builder.codeQualityScore(score);
+                    // 보안 위험도 매핑 (점수 기반)
+                    int securityScore = resultJson.path("security_score").asInt();
+                    String securityRiskLevel;
+                    if (securityScore >= 90) {
+                        securityRiskLevel = "Low";
+                    } else if (securityScore >= 70) {
+                        securityRiskLevel = "Medium";
+                    } else {
+                        securityRiskLevel = "High";
                     }
+                    builder.securityRiskLevel(securityRiskLevel);
                     
-                    JsonNode efficiency = resultJson.path("efficiency");
-                    if (!efficiency.isMissingNode()) {
-                        int score = (int) Math.round(efficiency.path("score").asInt() * 100.0 / 5.0);
-                        builder.securityScore(score); // efficiency를 security 점수로 매핑
+                    // 효율성 등급 매핑 (점수 기반)
+                    int efficiencyScore = resultJson.path("efficiency_score").asInt();
+                    String efficiencyGrade;
+                    if (efficiencyScore >= 90) {
+                        efficiencyGrade = "A";
+                    } else if (efficiencyScore >= 80) {
+                        efficiencyGrade = "B";
+                    } else if (efficiencyScore >= 70) {
+                        efficiencyGrade = "C";
+                    } else if (efficiencyScore >= 60) {
+                        efficiencyGrade = "D";
+                    } else {
+                        efficiencyGrade = "F";
                     }
-                    
-                    JsonNode quality = resultJson.path("quality");
-                    if (!quality.isMissingNode()) {
-                        int score = (int) Math.round(quality.path("score").asInt() * 100.0 / 5.0);
-                        builder.styleScore(score); // quality를 style 점수로 매핑
-                    }
+                    builder.efficiencyGrade(efficiencyGrade);
                     
                 } else {
                     // 기존 형식 (호환성 유지)

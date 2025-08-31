@@ -810,7 +810,11 @@ public class GeminiEvaluationService {
                 
                 if (response.getStatusCode() == HttpStatus.OK) {
                     log.info("Gemini API call successful on attempt {}", attempt);
-                    return response.getBody();
+                    String responseBody = response.getBody();
+                    log.debug("===== GEMINI API 원본 응답 시작 =====");
+                    log.debug("Response body: {}", responseBody);
+                    log.debug("===== GEMINI API 원본 응답 끝 =====");
+                    return responseBody;
                 } else {
                     throw new RuntimeException("Gemini API call failed with status: " + response.getStatusCode());
                 }
@@ -872,7 +876,9 @@ public class GeminiEvaluationService {
         }
         
         try {
-            log.debug("Parsing Gemini response: {}", geminiResponse.substring(0, Math.min(500, geminiResponse.length())));
+            log.debug("===== GEMINI 응답 파싱 시작 =====");
+            log.debug("Full Gemini response: {}", geminiResponse);
+            log.debug("===== GEMINI 응답 파싱 시작 끝 =====");
             
             JsonNode responseJson = objectMapper.readTree(geminiResponse);
             
@@ -913,7 +919,11 @@ public class GeminiEvaluationService {
             }
             
             // JSON 부분만 추출 (마크다운 형태로 감싸져 있을 수 있음)
+            log.debug("===== 텍스트에서 JSON 추출 시작 =====");
+            log.debug("Original text content: {}", textContent);
             String jsonContent = extractJsonFromResponse(textContent);
+            log.debug("Extracted JSON content: {}", jsonContent);
+            log.debug("===== 텍스트에서 JSON 추출 완료 =====");
             if (jsonContent.isEmpty()) {
                 log.error("No JSON content found in response");
                 return createFallbackResult("No JSON found in response");
@@ -935,12 +945,17 @@ public class GeminiEvaluationService {
             }
             
             // 새로운 DevOps 채점관 형식인지 확인
+            log.debug("===== JSON 형식 확인 =====");
+            log.debug("Has total_score field: {}", parsedJson.has("total_score"));
+            log.debug("Has best_practice_score field: {}", parsedJson.has("best_practice_score"));
+            log.debug("Has reliability_score field: {}", parsedJson.has("reliability_score"));
+            log.debug("JSON field names: {}", parsedJson.fieldNames());
             if (parsedJson.has("total_score")) {
-                log.info("Parsing DevOps evaluation response format");
+                log.info("✓ Parsing DevOps evaluation response format");
                 log.debug("DevOps JSON content: {}", jsonContent);
                 return parseDevOpsEvaluationResponse(parsedJson);
             } else {
-                log.info("Parsing legacy evaluation response format");
+                log.info("✗ Parsing legacy evaluation response format");
                 log.debug("Legacy JSON content: {}", jsonContent);
                 // 기존 형식으로 파싱
                 return objectMapper.readValue(jsonContent, EvaluationResultDTO.class);
@@ -960,38 +975,54 @@ public class GeminiEvaluationService {
      * 확장된 JSON 구조를 파싱하여 핵심 명령어 분석, 체크리스트 평가, 리소스 메트릭을 포함
      */
     private EvaluationResultDTO parseDevOpsEvaluationResponse(JsonNode devOpsResponse) {
+        log.debug("===== DevOps 응답 파싱 시작 =====");
         EvaluationResultDTO result = new EvaluationResultDTO();
         
         // 새로운 형식의 점수들 파싱
         int totalScore = devOpsResponse.path("total_score").asInt();
+        log.debug("Total score from JSON: {}", totalScore);
         result.setOverallScore(totalScore);
         
         // 모범사례 점수와 신뢰도 점수 설정
-        result.setBestPracticeScore(devOpsResponse.path("best_practice_score").asInt());
-        result.setReliabilityScore(devOpsResponse.path("reliability_score").asInt());
+        int bestPracticeScore = devOpsResponse.path("best_practice_score").asInt();
+        int reliabilityScore = devOpsResponse.path("reliability_score").asInt();
+        log.debug("Best practice score from JSON: {}", bestPracticeScore);
+        log.debug("Reliability score from JSON: {}", reliabilityScore);
+        result.setBestPracticeScore(bestPracticeScore);
+        result.setReliabilityScore(reliabilityScore);
         
         // 보안 위험도 설정 (점수에 따라 등급 결정)
         int securityScore = devOpsResponse.path("security_score").asInt();
+        log.debug("Security score from JSON: {}", securityScore);
         if (securityScore >= 90) {
             result.setSecurityRiskLevel("Low");
+            log.debug("Security risk level set to: Low");
         } else if (securityScore >= 70) {
             result.setSecurityRiskLevel("Medium");
+            log.debug("Security risk level set to: Medium");
         } else {
             result.setSecurityRiskLevel("High");
+            log.debug("Security risk level set to: High");
         }
         
         // 효율성 등급 설정 (점수에 따라 등급 결정)
         int efficiencyScore = devOpsResponse.path("efficiency_score").asInt();
+        log.debug("Efficiency score from JSON: {}", efficiencyScore);
         if (efficiencyScore >= 90) {
             result.setEfficiencyGrade("A");
+            log.debug("Efficiency grade set to: A");
         } else if (efficiencyScore >= 80) {
             result.setEfficiencyGrade("B");
+            log.debug("Efficiency grade set to: B");
         } else if (efficiencyScore >= 70) {
             result.setEfficiencyGrade("C");
+            log.debug("Efficiency grade set to: C");
         } else if (efficiencyScore >= 60) {
             result.setEfficiencyGrade("D");
+            log.debug("Efficiency grade set to: D");
         } else {
             result.setEfficiencyGrade("F");
+            log.debug("Efficiency grade set to: F");
         }
         
         // CodeQuality 객체 생성 및 설정
@@ -1087,6 +1118,14 @@ public class GeminiEvaluationService {
         }
         
         result.setDetailedAnalysis(detailedFeedback.toString());
+        
+        log.debug("===== DevOps 응답 파싱 완료 =====");
+        log.debug("Final result - Overall Score: {}", result.getOverallScore());
+        log.debug("Final result - Best Practice Score: {}", result.getBestPracticeScore());
+        log.debug("Final result - Reliability Score: {}", result.getReliabilityScore());
+        log.debug("Final result - Security Risk Level: {}", result.getSecurityRiskLevel());
+        log.debug("Final result - Efficiency Grade: {}", result.getEfficiencyGrade());
+        log.debug("===== DevOps 응답 파싱 완료 끝 =====");
         
         return result;
     }

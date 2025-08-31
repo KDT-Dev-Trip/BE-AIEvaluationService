@@ -113,13 +113,13 @@ public class EvaluationService {
                 log.warn("⚠️ Failed to publish evaluation started event, but evaluation continues: {}", e.getMessage());
             }
             
-            // S3 데이터 준비
-            String s3StorageUrl = event.getS3StorageUrl();
-            String preSignedUrl = event.getS3PreSignedUrl();
+            // S3 데이터 준비 (현재 사용하지 않음)
+            // String s3StorageUrl = event.getS3StorageUrl();
+            // String preSignedUrl = event.getS3PreSignedUrl();
             
-            log.info("=== S3 DATA PREPARATION ===");
-            log.info("S3 Storage URL: {}", s3StorageUrl);
-            log.info("Pre-Signed URL available: {}", preSignedUrl != null && !preSignedUrl.isEmpty());
+            // log.info("=== S3 DATA PREPARATION ===");
+            // log.info("S3 Storage URL: {}", s3StorageUrl);
+            // log.info("Pre-Signed URL available: {}", preSignedUrl != null && !preSignedUrl.isEmpty());
             
             // AI 평가 수행 - 실제 데이터로 평가
             log.info("=== CALLING GEMINI AI EVALUATION WITH REAL DATA ===");
@@ -325,6 +325,12 @@ public class EvaluationService {
             summary.setCodeQualityScore(result.getCodeQuality() != null ? result.getCodeQuality().getScore() : null);
             summary.setSecurityScore(result.getSecurity() != null ? result.getSecurity().getScore() : null);
             summary.setStyleScore(result.getStyle() != null ? result.getStyle().getScore() : null);
+            
+            // 추가 DevOps 평가 지표들 설정 (이전에 누락되었던 필드들)
+            summary.setBestPracticeScore(result.getBestPracticeScore());
+            summary.setReliabilityScore(result.getReliabilityScore());
+            summary.setSecurityRiskLevel(result.getSecurityRiskLevel());
+            summary.setEfficiencyGrade(result.getEfficiencyGrade());
             
             summary.setStatus(AIEvaluation.EvaluationStatus.COMPLETED);
             
