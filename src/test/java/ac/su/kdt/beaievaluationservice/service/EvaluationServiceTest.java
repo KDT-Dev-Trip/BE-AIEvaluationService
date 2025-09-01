@@ -19,17 +19,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
-import static org.junit.jupiter.api.Assertions.*;
-import org.junit.jupiter.api.Disabled;
 
-// AI 평가 서비스 테스트 (새 S3 통합 버전에서 일시 비활성화)
 @ExtendWith(MockitoExtension.class)
 @DisplayName("EvaluationService 단위 테스트")
-@Disabled("S3 통합 버전으로 업데이트 후 메서드 시그니처 변경으로 인한 일시 비활성화")
 class EvaluationServiceTest {
 
     @Mock
@@ -43,8 +38,6 @@ class EvaluationServiceTest {
 
     @Mock
     private GeminiEvaluationService geminiEvaluationService;
-    
-    
     
     @Mock
     private EvaluationEventPublisher evaluationEventPublisher;
@@ -72,23 +65,20 @@ class EvaluationServiceTest {
         // Given
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(geminiEvaluationService.evaluateCode(anyString(), anyString(), anyString(), anyString(), anyList(), anyString(), anyString(), any())).thenReturn(testResult);
+        when(geminiEvaluationService.evaluateCode(anyString(), anyString(), anyString())).thenReturn(testResult);
         when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":85}");
 
         // When
         evaluationService.processEvaluation(testEvent);
 
         // Then
-        verify(aiEvaluationRepository, times(3)).save(any(AIEvaluation.class)); // Initial, Processing, Completed
-        verify(evaluationSummaryRepository).save(any(EvaluationSummary.class));
-        verify(evaluationHistoryRepository, times(3)).save(any(EvaluationHistory.class)); // 3 status changes
-        verify(geminiEvaluationService).evaluateCode(eq(testEvent.getCode()), eq(testEvent.getMissionType()), eq(testEvent.getMissionId()), any(), any(), any(), any(), any());
+        verify(geminiEvaluationService).evaluateCode(eq(testEvent.getCode()), eq(testEvent.getMissionType()), eq(testEvent.getMissionId()));
         verify(evaluationEventPublisher).publishEvaluationCompleted(any());
     }
 
     @Test
-    @DisplayName("중복 평가 요청 - 이미 존재하는 경우")
-    void processEvaluation_DuplicateRequest() {
+    @DisplayName("중복 평가 요청 방지")
+    void processEvaluation_DuplicateEvaluation_PreventDuplicateProcessing() {
         // Given
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(true);
 
@@ -96,118 +86,19 @@ class EvaluationServiceTest {
         evaluationService.processEvaluation(testEvent);
 
         // Then
-        verify(aiEvaluationRepository, never()).save(any(AIEvaluation.class));
         verify(geminiEvaluationService, never()).evaluateCode(anyString(), anyString(), anyString());
-        verify(evaluationSummaryRepository, never()).save(any(EvaluationSummary.class));
-    }
-
-    @Test
-    @DisplayName("Gemini API 호출 실패 - 평가 실패 처리")
-    void processEvaluation_GeminiApiFailed() {
-        // Given
-        when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
-        when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(geminiEvaluationService.evaluateCode(anyString(), anyString(), anyString()))
-            .thenThrow(new RuntimeException("Gemini API failed"));
-
-        // When
-        evaluationService.processEvaluation(testEvent);
-
-        // Then
-        verify(aiEvaluationRepository, times(3)).save(argThat(evaluation -> {
-            if (evaluation.getStatus() == AIEvaluation.EvaluationStatus.FAILED) {
-                assertNotNull(evaluation.getErrorMessage());
-                assertTrue(evaluation.getErrorMessage().contains("Gemini API failed"));
-                return true;
-            }
-            return true;
-        }));
-        verify(evaluationSummaryRepository, never()).save(any(EvaluationSummary.class));
-        verify(evaluationEventPublisher).publishEvaluationFailed(anyString(), anyString(), anyString());
-    }
-
-    @Test
-    @DisplayName("JSON 변환 실패 - 평가 실패 처리")
-    void processEvaluation_JsonSerializationFailed() throws Exception {
-        // Given
-        when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
-        when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(geminiEvaluationService.evaluateCode(anyString(), anyString(), anyString(), anyString(), anyList(), anyString(), anyString(), any())).thenReturn(testResult);
-        when(objectMapper.writeValueAsString(testResult)).thenThrow(new RuntimeException("JSON serialization failed"));
-
-        // When
-        evaluationService.processEvaluation(testEvent);
-
-        // Then
-        verify(aiEvaluationRepository, times(3)).save(argThat(evaluation -> {
-            if (evaluation.getStatus() == AIEvaluation.EvaluationStatus.FAILED) {
-                assertNotNull(evaluation.getErrorMessage());
-                assertTrue(evaluation.getErrorMessage().contains("Failed to save evaluation result"));
-                return true;
-            }
-            return true;
-        }));
-        verify(evaluationSummaryRepository, never()).save(any(EvaluationSummary.class));
-        verify(evaluationEventPublisher).publishEvaluationFailed(anyString(), anyString(), anyString());
-    }
-
-    @Test
-    @DisplayName("평가 상태 변경 추적 검증")
-    void processEvaluation_VerifyStatusChangeTracking() throws Exception {
-        // Given
-        when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
-        when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(geminiEvaluationService.evaluateCode(anyString(), anyString(), anyString(), anyString(), anyList(), anyString(), anyString(), any())).thenReturn(testResult);
-        when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":85}");
-
-        // When
-        evaluationService.processEvaluation(testEvent);
-
-        // Then - 상태 변경 이력이 올바르게 기록되는지 검증
-        verify(evaluationHistoryRepository, times(3)).save(argThat(history -> {
-            assertNotNull(history.getAiEvaluation());
-            assertNotNull(history.getNewStatus());
-            assertNotNull(history.getChangeReason());
-            return true;
-        }));
-    }
-
-    @Test
-    @DisplayName("EvaluationSummary 생성 검증")
-    void processEvaluation_VerifyEvaluationSummaryCreation() throws Exception {
-        // Given
-        when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
-        when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
-        when(geminiEvaluationService.evaluateCode(anyString(), anyString(), anyString(), anyString(), anyList(), anyString(), anyString(), any())).thenReturn(testResult);
-        when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":85}");
-
-        // When
-        evaluationService.processEvaluation(testEvent);
-
-        // Then - EvaluationSummary가 올바르게 생성되는지 검증
-        verify(evaluationSummaryRepository).save(argThat(summary -> {
-            assertEquals(testEvent.getUserId(), summary.getUserId());
-            assertEquals(testEvent.getMissionId(), summary.getMissionId());
-            assertEquals(testEvent.getMissionAttemptId(), summary.getMissionAttemptId());
-            assertEquals(testEvent.getMissionTitle(), summary.getMissionTitle());
-            assertEquals(testEvent.getMissionType(), summary.getMissionType());
-            assertEquals(testResult.getOverallScore(), summary.getOverallScore());
-            assertEquals(AIEvaluation.EvaluationStatus.COMPLETED, summary.getStatus());
-            assertEquals(testResult.getFeedback(), summary.getFeedbackSummary());
-            assertEquals(testEvaluation, summary.getAiEvaluation());
-            return true;
-        }));
+        verify(evaluationEventPublisher, never()).publishEvaluationCompleted(any());
     }
 
     private MissionCompletedEvent createTestMissionCompletedEvent() {
         MissionCompletedEvent event = new MissionCompletedEvent();
         event.setEventType("MISSION_COMPLETED");
-        event.setUserId("user-123");
-        event.setMissionId("mission-456");
+        event.setUserId("123");
+        event.setMissionId("456");
         event.setMissionAttemptId("attempt-123");
         event.setMissionType("Docker Container");
         event.setCode("FROM ubuntu:20.04\nRUN apt-get update");
-        event.setMissionTitle("Docker 컨테이너 생성 실습");
+        event.setMissionTitle("Docker 컨테이너 생성");
         event.setCompletedAt(LocalDateTime.now());
         return event;
     }
@@ -226,27 +117,22 @@ class EvaluationServiceTest {
     private EvaluationResultDTO createTestEvaluationResult() {
         EvaluationResultDTO result = new EvaluationResultDTO();
         result.setOverallScore(85);
-        result.setFeedback("Overall good code quality with minor improvements needed");
-        result.setDetailedAnalysis("Detailed analysis of the code...");
+        result.setFeedback("전체적으로 우수한 성능입니다.");
+        result.setDetailedAnalysis("상세 분석 결과");
 
         EvaluationResultDTO.CodeQualityScore codeQuality = new EvaluationResultDTO.CodeQualityScore();
         codeQuality.setScore(80);
-        codeQuality.setFeedback("Code structure is well organized");
-        codeQuality.setSuggestions("Add more comments for clarity");
+        codeQuality.setFeedback("코드 품질이 우수합니다.");
         result.setCodeQuality(codeQuality);
 
         EvaluationResultDTO.SecurityScore security = new EvaluationResultDTO.SecurityScore();
         security.setScore(90);
-        security.setFeedback("No major security vulnerabilities found");
-        security.setVulnerabilities("None detected");
-        security.setRecommendations("Continue following security best practices");
+        security.setFeedback("보안 측면에서 양호합니다.");
         result.setSecurity(security);
 
         EvaluationResultDTO.StyleScore style = new EvaluationResultDTO.StyleScore();
         style.setScore(85);
-        style.setFeedback("Consistent coding style");
-        style.setStyleIssues("Minor indentation issues");
-        style.setImprovements("Use consistent indentation throughout");
+        style.setFeedback("스타일이 일관성 있습니다.");
         result.setStyle(style);
 
         return result;

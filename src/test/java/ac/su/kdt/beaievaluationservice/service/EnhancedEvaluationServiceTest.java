@@ -76,16 +76,9 @@ class EnhancedEvaluationServiceTest {
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
         
-        // 새로운 8개 파라미터 메서드 호출 모킹
-        when(geminiEvaluationService.evaluateCode(
-            any(String.class),
-            any(String.class),
-            any(String.class),
-            any(String.class),
-            any(List.class),
-            any(String.class),
-            any(String.class),
-            any(MissionCompletedEvent.SimpleStatistics.class)
+        // evaluateCodeWithRealData 메서드 호출 모킹
+        when(geminiEvaluationService.evaluateCodeWithRealData(
+            any(MissionCompletedEvent.class)
         )).thenReturn(testResult);
         
         when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":88}");
@@ -93,16 +86,9 @@ class EnhancedEvaluationServiceTest {
         // When
         evaluationService.processEvaluation(testEventWithEnhancedFields);
 
-        // Then - 새로운 평가 방식 메서드가 올바른 파라미터로 호출되었는지 검증
-        verify(geminiEvaluationService).evaluateCode(
-            any(String.class),
-            any(String.class),
-            any(String.class),
-            any(String.class),
-            any(List.class),
-            any(String.class),
-            any(String.class),
-            any(MissionCompletedEvent.SimpleStatistics.class)
+        // Then - evaluateCodeWithRealData 메서드가 올바른 파라미터로 호출되었는지 검증
+        verify(geminiEvaluationService).evaluateCodeWithRealData(
+            eq(testEventWithEnhancedFields)
         );
         
         // 평가 프로세스 완료 검증
@@ -119,8 +105,8 @@ class EnhancedEvaluationServiceTest {
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
         
-        when(geminiEvaluationService.evaluateCode(
-            anyString(), anyString(), anyString(), anyString(), any(), anyString(), anyString(), any()
+        when(geminiEvaluationService.evaluateCodeWithRealData(
+            any(MissionCompletedEvent.class)
         )).thenReturn(testResult);
         
         when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":88}");
@@ -160,12 +146,11 @@ class EnhancedEvaluationServiceTest {
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
         
-        // 정확한 파라미터로 매칭
+        // 기본 evaluateCode 메서드 모킹
         when(geminiEvaluationService.evaluateCode(
             eq(basicTestEvent.getCode()),
             eq(basicTestEvent.getMissionType()),
-            eq(basicTestEvent.getMissionId()),
-            isNull(), isNull(), isNull(), isNull(), isNull()
+            eq(basicTestEvent.getMissionId())
         )).thenReturn(testResult);
         
         when(objectMapper.writeValueAsString(testResult)).thenReturn("{\"overallScore\":85}");
@@ -173,16 +158,11 @@ class EnhancedEvaluationServiceTest {
         // When
         evaluationService.processEvaluation(basicTestEvent);
 
-        // Then - null 값들이 그대로 전달되는지 검증 (하위 호환성)
+        // Then - 기본 evaluateCode 메서드가 호출되는지 검증 (하위 호환성)
         verify(geminiEvaluationService).evaluateCode(
             eq(basicTestEvent.getCode()),
             eq(basicTestEvent.getMissionType()),
-            eq(basicTestEvent.getMissionId()),
-            isNull(), // missionObjective
-            isNull(), // checklist
-            isNull(), // s3StorageUrl
-            isNull(), // s3PreSignedUrl
-            isNull()  // statistics
+            eq(basicTestEvent.getMissionId())
         );
         
         // 평가는 정상적으로 완료되어야 함
@@ -200,8 +180,8 @@ class EnhancedEvaluationServiceTest {
 
         // Then - 중복 처리 방지 검증
         verify(aiEvaluationRepository, never()).save(any(AIEvaluation.class));
-        verify(geminiEvaluationService, never()).evaluateCode(
-            anyString(), anyString(), anyString(), anyString(), any(), anyString(), anyString(), any());
+        verify(geminiEvaluationService, never()).evaluateCodeWithRealData(any(MissionCompletedEvent.class));
+        verify(geminiEvaluationService, never()).evaluateCode(anyString(), anyString(), anyString());
         verify(evaluationSummaryRepository, never()).save(any(EvaluationSummary.class));
         verify(evaluationEventPublisher, never()).publishEvaluationCompleted(any());
     }
@@ -213,8 +193,8 @@ class EnhancedEvaluationServiceTest {
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
         
-        when(geminiEvaluationService.evaluateCode(
-            anyString(), anyString(), anyString(), anyString(), any(), anyString(), anyString(), any()))
+        when(geminiEvaluationService.evaluateCodeWithRealData(
+            any(MissionCompletedEvent.class)))
             .thenThrow(new RuntimeException("Enhanced Gemini API evaluation failed"));
 
         // When
@@ -247,8 +227,8 @@ class EnhancedEvaluationServiceTest {
         when(aiEvaluationRepository.existsByMissionAttemptId("attempt-123")).thenReturn(false);
         when(aiEvaluationRepository.save(any(AIEvaluation.class))).thenReturn(testEvaluation);
         
-        when(geminiEvaluationService.evaluateCode(
-            anyString(), anyString(), anyString(), anyString(), any(), anyString(), anyString(), any()))
+        when(geminiEvaluationService.evaluateCodeWithRealData(
+            any(MissionCompletedEvent.class)))
             .thenReturn(testResult);
             
         when(objectMapper.writeValueAsString(testResult))
@@ -277,16 +257,9 @@ class EnhancedEvaluationServiceTest {
         event.setMissionTitle("고급 Docker 컨테이너 생성 실습");
         event.setCompletedAt(LocalDateTime.now());
         
-        // 새로운 향상된 필드들
-        event.setMissionObjective("Ubuntu 20.04 기반의 웹 서버 Docker 이미지를 생성하세요. 패키지를 업데이트하고, 8080 포트를 노출하며, nginx를 daemon 모드로 실행하도록 설정해야 합니다.");
-        event.setChecklist(List.of(
-            "Ubuntu 20.04 베이스 이미지 사용",
-            "apt-get update로 패키지 목록 업데이트",
-            "8080 포트를 외부로 노출",
-            "nginx를 daemon off 모드로 실행",
-            "적절한 Dockerfile 문법 준수",
-            "보안 모범 사례 적용"
-        ));
+        // 미션 평가 기준 및 가이드 설정
+        event.setEvaluationCriteria("{\"objectives\":[\"Ubuntu 20.04 베이스 이미지 사용\",\"apt-get update 실행\",\"8080 포트 노출\",\"nginx daemon 설정\"]}");
+        event.setMissionGuide("# Docker 컨테이너 생성\n\nUbuntu 20.04 기반의 웹 서버 Docker 이미지를 생성하세요.");
         event.setS3StorageUrl("s3://devtrip-bucket/missions/mission-456/user-123/");
         event.setS3PreSignedUrl("https://devtrip-bucket.s3.amazonaws.com/missions/mission-456/user-123/docker-files.tar.gz?AWSAccessKeyId=AKIAI44QH8DHBEXAMPLE&Expires=1618884000&Signature=example");
         

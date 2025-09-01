@@ -192,21 +192,26 @@ public class TestDataBuilder {
         private static EvaluationResultDTO.CodeQualityScore createDefaultCodeQuality() {
             return new EvaluationResultDTO.CodeQualityScore(80,
                 "Code structure is well organized", 
-                "Add more comments for better readability");
+                "Add more comments for better readability",
+                "B", // efficiencyGrade
+                75, // bestPracticeScore
+                85); // reliabilityScore
         }
 
         private static EvaluationResultDTO.SecurityScore createDefaultSecurity() {
             return new EvaluationResultDTO.SecurityScore(90,
                 "No major security vulnerabilities detected", 
                 "None found", 
-                "Continue following security best practices");
+                "Continue following security best practices",
+                "Low"); // riskLevel
         }
 
         private static EvaluationResultDTO.StyleScore createDefaultStyle() {
             return new EvaluationResultDTO.StyleScore(85,
                 "Consistent coding style throughout", 
                 "Minor indentation inconsistencies", 
-                "Use consistent indentation and spacing");
+                "Use consistent indentation and spacing",
+                "Docker"); // category
         }
     }
 
