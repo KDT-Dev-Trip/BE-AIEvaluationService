@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-evaluation-service
+  namespace: devtrip
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-evaluation-service
+  template:
+    metadata:
+      labels:
+        app: ai-evaluation-service
+    spec:
+      containers:
+      - name: ai-evaluation-service
+        image: ai-evaluation-service:latest
+        ports:
+        - containerPort: 8084
+        envFrom:
+        - configMapRef:
+            name: ai-evaluation-service-config
+        - secretRef:
+            name: ai-evaluation-service-secret
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"

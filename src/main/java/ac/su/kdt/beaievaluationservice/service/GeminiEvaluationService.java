@@ -1,5 +1,9 @@
 package ac.su.kdt.beaievaluationservice.service;
 
+import ac.su.kdt.beaievaluationservice.constants.EvaluationConstants;
+import ac.su.kdt.beaievaluationservice.exception.GeminiApiException;
+import ac.su.kdt.beaievaluationservice.exception.EvaluationException;
+
 import ac.su.kdt.beaievaluationservice.dto.EvaluationResultDTO;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -100,7 +104,7 @@ public class GeminiEvaluationService {
             throw e;
         } catch (Exception e) {
             log.error("Error during evaluation for missionId: {}", event.getMissionId(), e);
-            throw new RuntimeException("Evaluation process failed: " + e.getMessage(), e);
+            throw new EvaluationException("Evaluation process failed: " + e.getMessage(), e);
         }
     }
     
@@ -195,11 +199,19 @@ public class GeminiEvaluationService {
                                                 MissionCompletedEvent.SimpleStatistics statistics, String s3Data,
                                                 EvaluationDataResponse missionData) {
         
-        // === 시스템 프롬프트 구성 ===
-        // AI 모델의 역할과 평가 기준을 정의하는 섹션
-        // - DevOps 전문가로서의 관점 설정
-        // - 교육적이고 건설적인 피드백 제공 지침
-        // - 실제 데이터 기반 평가의 중요성 강조
+        StringBuilder systemPrompt = buildSystemPrompt();
+        StringBuilder userPrompt = new StringBuilder();
+        
+        appendMissionInfo(userPrompt, missionId, missionObjective, checklist);
+        appendDataAccess(userPrompt, s3StorageUrl, s3PreSignedUrl, s3Data);
+        appendRealExecutionData(userPrompt, missionData);
+        appendOptionalAggregates(userPrompt, statistics);
+        appendEvaluationRubric(userPrompt);
+        
+        return systemPrompt.toString() + "\n\nUser:\n" + userPrompt.toString();
+    }
+    
+    private StringBuilder buildSystemPrompt() {
         StringBuilder systemPrompt = new StringBuilder();
         systemPrompt.append("""
             당신은 경험이 풍부한 DevOps 전문가입니다. 학습자의 실습 결과를 평가하고 건설적인 피드백을 제공하는 것이 목표입니다.
@@ -212,26 +224,17 @@ public class GeminiEvaluationService {
             5. 점수는 학습자의 노력과 기술적 성취를 반영해야 합니다.
             6. 완벽하지 않더라도 시도와 부분적 성공에 대해 긍정적으로 평가하세요.
             """);
-        
-        // === 사용자 프롬프트 구성 시작 ===
-        StringBuilder userPrompt = new StringBuilder();
-        
-        // === [Mission Info] 섹션 ===
-        // 미션의 기본 정보와 학습 목표를 제공
-        // - 미션 식별자로 평가 대상 명확화
-        // - 구체적인 학습 목표를 통해 평가 방향성 제시
-        // - 체크리스트로 필수 달성 항목 명시
+        return systemPrompt;
+    }
+    
+    private void appendMissionInfo(StringBuilder userPrompt, String missionId, String missionObjective, List<String> checklist) {
         userPrompt.append("[Mission Info]\n");
         userPrompt.append(String.format("- missionAttemptId: %s%n", missionId));
         
-        // 미션 목표 - AI가 학습자의 목표 달성도를 평가하는 기준점
         if (missionObjective != null && !missionObjective.trim().isEmpty()) {
             userPrompt.append(String.format("- goal: %s%n", missionObjective));
         }
         
-        // 체크리스트 - 미션별 필수 완료 사항들을 구체적으로 제시 (3-5개의 핵심 목표)
-        // AI는 각 항목들이 얼마나 완료되었는지 개별적으로 정량적 평가 수행
-        // 각 체크리스트 항목은 0-100% 달성률로 측정되어야 함
         if (checklist != null && !checklist.isEmpty()) {
             userPrompt.append("- mission_objectives_checklist:\n");
             for (int i = 0; i < checklist.size(); i++) {
@@ -239,11 +242,9 @@ public class GeminiEvaluationService {
             }
             userPrompt.append("  # 각 목표의 달성률을 0-100% 범위로 개별 평가 필요\n");
         }
-        
-        // === [Data Access] 섹션 ===
-        // 실습 중 생성된 실행 로그와 메트릭 데이터에 대한 접근 정보
-        // - S3 저장소 주소를 통해 데이터 위치 명시
-        // - Pre-Signed URL로 AI가 직접 로그 데이터를 읽을 수 있게 함
+    }
+    
+    private void appendDataAccess(StringBuilder userPrompt, String s3StorageUrl, String s3PreSignedUrl, String s3Data) {
         userPrompt.append("\n[Data Access]\n");
         if (s3StorageUrl != null && !s3StorageUrl.trim().isEmpty()) {
             userPrompt.append(String.format("- s3_address: %s%n", s3StorageUrl));
@@ -255,275 +256,277 @@ public class GeminiEvaluationService {
             userPrompt.append("# 모델은 위 URL을 통해 원본을 직접 읽어야 합니다.\n");
             userPrompt.append("# Pre-Signed URL은 5분 내 만료됩니다.\n");
             
-            // === [EXECUTION LOG AND METRICS] 섹션 ===
-            // 실제 실습 중 수집된 로그 데이터와 시스템 메트릭
-            // - JSON 형태의 구조화된 실행 로그 제공
-            // - 명령어 실행 결과, 오류 메시지, 성능 지표 포함
-            // AI는 이 데이터를 바탕으로 실제 실행 결과를 객관적으로 분석
             if (s3Data != null && !s3Data.trim().isEmpty()) {
-                userPrompt.append("\n[EXECUTION LOG AND METRICS]\n");
-                userPrompt.append("```json\n");
-                userPrompt.append(s3Data);
-                userPrompt.append("\n```\n");
-                
-                // === [ANALYSIS REQUIREMENTS] 섹션 ===
-                // AI가 수행해야 할 구체적인 분석 항목들
-                // - 명령어 실행 성공률 분석: 올바른 명령어 사용 여부, 에러 처리 능력
-                // - 핵심 명령어 평가: kubectl, docker, helm 등 미션별 핵심 명령어 사용법 검토
-                // - 리소스 효율성 분석: CPU, 메모리, 네트워크 사용 패턴 평가
-                // - 성능 최적화 분석: 실행 시간, 불필요한 작업 여부 검토
-                // - 작업 완성도 분석: 목표 달성도와 전반적인 품질 평가
-                userPrompt.append("\n[COMPREHENSIVE ANALYSIS REQUIREMENTS]\n");
-                userPrompt.append("다음 모든 항목들을 상세히 분석하고 평가하세요:\n\n");
-                
-                // 1. 명령어 실행 분석
-                userPrompt.append("=== 1. COMMAND EXECUTION ANALYSIS ===\n");
-                userPrompt.append("✓ 실행된 모든 명령어 목록화 및 분석\n");
-                userPrompt.append("  - 각 명령어의 목적과 의도 파악\n");
-                userPrompt.append("  - 명령어 문법의 정확성 (옵션, 파라미터 사용)\n");
-                userPrompt.append("  - 실행 순서의 논리적 타당성\n");
-                userPrompt.append("  - 불필요하거나 중복된 명령어 식별\n");
-                userPrompt.append("✓ 에러 처리 패턴 분석\n");
-                userPrompt.append("  - 발생한 모든 에러 메시지 분류\n");
-                userPrompt.append("  - 에러 복구 시도 및 해결 방법 평가\n");
-                userPrompt.append("  - 재시도 패턴과 문제 해결 접근법\n\n");
-                
-                // 2. 리소스 사용량 분석
-                userPrompt.append("=== 2. RESOURCE UTILIZATION ANALYSIS ===\n");
-                userPrompt.append("✓ CPU 사용 패턴\n");
-                userPrompt.append("  - 평균/최대 CPU 사용률 평가\n");
-                userPrompt.append("  - CPU 스파이크 원인 분석\n");
-                userPrompt.append("  - CPU 최적화 가능성 검토\n");
-                userPrompt.append("✓ 메모리 사용 패턴\n");
-                userPrompt.append("  - 메모리 사용량 추이 분석\n");
-                userPrompt.append("  - 메모리 누수 가능성 검토\n");
-                userPrompt.append("  - 메모리 효율성 평가\n");
-                userPrompt.append("✓ 네트워크 I/O 분석\n");
-                userPrompt.append("  - 네트워크 전송량 적절성\n");
-                userPrompt.append("  - 불필요한 네트워크 호출 여부\n\n");
-                
-                // 3. 출력 결과 분석
-                userPrompt.append("=== 3. OUTPUT ANALYSIS ===\n");
-                userPrompt.append("✓ 명령어 출력 결과 검증\n");
-                userPrompt.append("  - 예상된 출력과의 일치 여부\n");
-                userPrompt.append("  - 경고 메시지 분석\n");
-                userPrompt.append("  - 성공 메시지 확인\n");
-                userPrompt.append("✓ 최종 상태 검증\n");
-                userPrompt.append("  - Pod/Container 상태 확인\n");
-                userPrompt.append("  - Service 접근 가능성\n");
-                userPrompt.append("  - 데이터 일관성 검증\n\n");
-                
-                // 4. 작업 공간 분석
-                userPrompt.append("=== 4. WORKSPACE ANALYSIS ===\n");
-                userPrompt.append("✓ 생성/수정된 파일 분석\n");
-                userPrompt.append("  - YAML/JSON 파일 구조 검증\n");
-                userPrompt.append("  - 설정 파일의 적절성\n");
-                userPrompt.append("  - 파일 명명 규칙 준수\n");
-                userPrompt.append("✓ 디렉토리 구조 평가\n");
-                userPrompt.append("  - 프로젝트 구조의 체계성\n");
-                userPrompt.append("  - 파일 조직화 수준\n\n");
-                
-                // 5. 보안 및 모범 사례
-                userPrompt.append("=== 5. SECURITY & BEST PRACTICES ===\n");
-                userPrompt.append("✓ 보안 검사\n");
-                userPrompt.append("  - 하드코딩된 시크릿/패스워드 검사\n");
-                userPrompt.append("  - 권한 설정 적절성\n");
-                userPrompt.append("  - 네트워크 정책 검토\n");
-                userPrompt.append("✓ 모범 사례 준수\n");
-                userPrompt.append("  - 라벨링 규칙 준수\n");
-                userPrompt.append("  - 리소스 제한 설정\n");
-                userPrompt.append("  - Health check 구성\n");
-                userPrompt.append("  - 롤백 가능성\n\n");
-                
-                // 6. 성능 및 효율성
-                userPrompt.append("=== 6. PERFORMANCE & EFFICIENCY ===\n");
-                userPrompt.append("✓ 전체 실행 시간 평가\n");
-                userPrompt.append("✓ 병목 구간 식별\n");
-                userPrompt.append("✓ 최적화 가능 영역\n");
-                userPrompt.append("✓ 확장성 고려사항\n\n");
-                
-                userPrompt.append("CRITICAL: 실제 로그 데이터에 기반한 구체적이고 상세한 평가를 제공하세요.\n");
-                userPrompt.append("각 명령어, 에러, 리소스 사용량에 대해 구체적인 수치와 함께 평가해야 합니다.\n");
+                appendExecutionLogSection(userPrompt, s3Data);
+                appendAnalysisRequirements(userPrompt);
             }
         }
+    }
+    
+    private void appendExecutionLogSection(StringBuilder userPrompt, String s3Data) {
+        userPrompt.append("\n[EXECUTION LOG AND METRICS]\n");
+        userPrompt.append("```json\n");
+        userPrompt.append(s3Data);
+        userPrompt.append("\n```\n");
+    }
+    
+    private void appendAnalysisRequirements(StringBuilder userPrompt) {
+        userPrompt.append("\n[COMPREHENSIVE ANALYSIS REQUIREMENTS]\n");
+        userPrompt.append("다음 모든 항목들을 상세히 분석하고 평가하세요:\n\n");
         
-        // === [REAL EXECUTION DATA] 섹션 ===
-        // 미션 관리 서비스에서 수집된 실제 명령어 실행 데이터
+        appendCommandAnalysis(userPrompt);
+        appendResourceAnalysis(userPrompt);
+        appendOutputAnalysis(userPrompt);
+        appendWorkspaceAnalysis(userPrompt);
+        appendSecurityAnalysis(userPrompt);
+        appendPerformanceAnalysis(userPrompt);
+        
+        userPrompt.append("CRITICAL: 실제 로그 데이터에 기반한 구체적이고 상세한 평가를 제공하세요.\n");
+        userPrompt.append("각 명령어, 에러, 리소스 사용량에 대해 구체적인 수치와 함께 평가해야 합니다.\n");
+    }
+    
+    private void appendCommandAnalysis(StringBuilder userPrompt) {
+        userPrompt.append("=== 1. COMMAND EXECUTION ANALYSIS ===\n");
+        userPrompt.append("✓ 실행된 모든 명령어 목록화 및 분석\n");
+        userPrompt.append("  - 각 명령어의 목적과 의도 파악\n");
+        userPrompt.append("  - 명령어 문법의 정확성 (옵션, 파라미터 사용)\n");
+        userPrompt.append("  - 실행 순서의 논리적 타당성\n");
+        userPrompt.append("  - 불필요하거나 중복된 명령어 식별\n");
+        userPrompt.append("✓ 에러 처리 패턴 분석\n");
+        userPrompt.append("  - 발생한 모든 에러 메시지 분류\n");
+        userPrompt.append("  - 에러 복구 시도 및 해결 방법 평가\n");
+        userPrompt.append("  - 재시도 패턴과 문제 해결 접근법\n\n");
+    }
+    
+    private void appendResourceAnalysis(StringBuilder userPrompt) {
+        userPrompt.append("=== 2. RESOURCE UTILIZATION ANALYSIS ===\n");
+        userPrompt.append("✓ CPU 사용 패턴\n");
+        userPrompt.append("  - 평균/최대 CPU 사용률 평가\n");
+        userPrompt.append("  - CPU 스파이크 원인 분석\n");
+        userPrompt.append("  - CPU 최적화 가능성 검토\n");
+        userPrompt.append("✓ 메모리 사용 패턴\n");
+        userPrompt.append("  - 메모리 사용량 추이 분석\n");
+        userPrompt.append("  - 메모리 누수 가능성 검토\n");
+        userPrompt.append("  - 메모리 효율성 평가\n");
+        userPrompt.append("✓ 네트워크 I/O 분석\n");
+        userPrompt.append("  - 네트워크 전송량 적절성\n");
+        userPrompt.append("  - 불필요한 네트워크 호출 여부\n\n");
+    }
+    
+    private void appendOutputAnalysis(StringBuilder userPrompt) {
+        userPrompt.append("=== 3. OUTPUT ANALYSIS ===\n");
+        userPrompt.append("✓ 명령어 출력 결과 검증\n");
+        userPrompt.append("  - 예상된 출력과의 일치 여부\n");
+        userPrompt.append("  - 경고 메시지 분석\n");
+        userPrompt.append("  - 성공 메시지 확인\n");
+        userPrompt.append("✓ 최종 상태 검증\n");
+        userPrompt.append("  - Pod/Container 상태 확인\n");
+        userPrompt.append("  - Service 접근 가능성\n");
+        userPrompt.append("  - 데이터 일관성 검증\n\n");
+    }
+    
+    private void appendWorkspaceAnalysis(StringBuilder userPrompt) {
+        userPrompt.append("=== 4. WORKSPACE ANALYSIS ===\n");
+        userPrompt.append("✓ 생성/수정된 파일 분석\n");
+        userPrompt.append("  - YAML/JSON 파일 구조 검증\n");
+        userPrompt.append("  - 설정 파일의 적절성\n");
+        userPrompt.append("  - 파일 명명 규칙 준수\n");
+        userPrompt.append("✓ 디렉토리 구조 평가\n");
+        userPrompt.append("  - 프로젝트 구조의 체계성\n");
+        userPrompt.append("  - 파일 조직화 수준\n\n");
+    }
+    
+    private void appendSecurityAnalysis(StringBuilder userPrompt) {
+        userPrompt.append("=== 5. SECURITY & BEST PRACTICES ===\n");
+        userPrompt.append("✓ 보안 검사\n");
+        userPrompt.append("  - 하드코딩된 시크릿/패스워드 검사\n");
+        userPrompt.append("  - 권한 설정 적절성\n");
+        userPrompt.append("  - 네트워크 정책 검토\n");
+        userPrompt.append("✓ 모범 사례 준수\n");
+        userPrompt.append("  - 라벨링 규칙 준수\n");
+        userPrompt.append("  - 리소스 제한 설정\n");
+        userPrompt.append("  - Health check 구성\n");
+        userPrompt.append("  - 롤백 가능성\n\n");
+    }
+    
+    private void appendPerformanceAnalysis(StringBuilder userPrompt) {
+        userPrompt.append("=== 6. PERFORMANCE & EFFICIENCY ===\n");
+        userPrompt.append("✓ 전체 실행 시간 평가\n");
+        userPrompt.append("✓ 병목 구간 식별\n");
+        userPrompt.append("✓ 최적화 가능 영역\n");
+        userPrompt.append("✓ 확장성 고려사항\n\n");
+    }
+    
+    private void appendRealExecutionData(StringBuilder userPrompt, EvaluationDataResponse missionData) {
         if (missionData != null) {
             userPrompt.append("\n[REAL EXECUTION DATA]\n");
             
-            // 전체 통계
-            if (missionData.getStatistics() != null) {
-                var stats = missionData.getStatistics();
-                userPrompt.append("## Execution Statistics:\n");
-                userPrompt.append(String.format("- Total Commands: %d\n", stats.getTotalCommands()));
-                userPrompt.append(String.format("- Successful Commands: %d\n", stats.getSuccessfulCommands()));
-                userPrompt.append(String.format("- Failed Commands: %d\n", stats.getFailedCommands()));
-                userPrompt.append(String.format("- Success Rate: %.2f%%\n", stats.getSuccessRate()));
-                userPrompt.append(String.format("- Total Execution Time: %d ms\n\n", stats.getTotalExecutionTimeMs()));
-            }
-            
-            // 실제 명령어 실행 히스토리
-            if (missionData.getCommandHistory() != null && !missionData.getCommandHistory().isEmpty()) {
-                userPrompt.append("## Command Execution History:\n");
-                userPrompt.append("```\n");
-                
-                int count = 0;
-                for (var cmd : missionData.getCommandHistory()) {
-                    count++;
-                    userPrompt.append(String.format("[%d] %s\n", count, cmd.getExecutedAt()));
-                    userPrompt.append(String.format("Command: %s\n", cmd.getCommand()));
-                    userPrompt.append(String.format("Working Dir: %s\n", cmd.getWorkingDirectory()));
-                    userPrompt.append(String.format("Exit Code: %d\n", cmd.getExitCode() != null ? cmd.getExitCode() : -1));
-                    userPrompt.append(String.format("Duration: %d ms\n", cmd.getDurationMs() != null ? cmd.getDurationMs() : 0));
-                    
-                    if (cmd.getOutput() != null && !cmd.getOutput().trim().isEmpty()) {
-                        String output = cmd.getOutput().length() > 200 ? 
-                            cmd.getOutput().substring(0, 200) + "..." : cmd.getOutput();
-                        userPrompt.append(String.format("Output: %s\n", output));
-                    }
-                    userPrompt.append("---\n");
-                    
-                    // 처음 20개 명령어만 표시 (프롬프트 길이 제한)
-                    if (count >= 20) {
-                        userPrompt.append(String.format("... (%d more commands)\n", missionData.getCommandHistory().size() - 20));
-                        break;
-                    }
-                }
-                userPrompt.append("```\n\n");
-            }
-            
-            // 실패한 명령어들
-            if (missionData.getFailedCommands() != null && !missionData.getFailedCommands().isEmpty()) {
-                userPrompt.append("## Failed Commands Analysis:\n");
-                userPrompt.append("```\n");
-                
-                for (var failedCmd : missionData.getFailedCommands()) {
-                    userPrompt.append(String.format("Command: %s\n", failedCmd.getCommand()));
-                    userPrompt.append(String.format("Exit Code: %d\n", failedCmd.getExitCode()));
-                    userPrompt.append(String.format("Error Output: %s\n", 
-                        failedCmd.getOutput() != null ? failedCmd.getOutput().substring(0, Math.min(150, failedCmd.getOutput().length())) : "None"));
-                    userPrompt.append("---\n");
-                }
-                userPrompt.append("```\n\n");
-            }
-            
-            // 리소스 사용량
-            if (missionData.getResourceUsage() != null) {
-                var resource = missionData.getResourceUsage();
-                userPrompt.append("## Resource Usage:\n");
-                userPrompt.append(String.format("- Average CPU: %.2f%%\n", resource.getAverageCpuUsage() != null ? resource.getAverageCpuUsage() : 0.0));
-                userPrompt.append(String.format("- Max CPU: %.2f%%\n", resource.getMaxCpuUsage() != null ? resource.getMaxCpuUsage() : 0.0));
-                userPrompt.append(String.format("- Average Memory: %.2f MB\n", resource.getAverageMemoryUsage() != null ? resource.getAverageMemoryUsage() : 0.0));
-                userPrompt.append(String.format("- Max Memory: %.2f MB\n\n", resource.getMaxMemoryUsage() != null ? resource.getMaxMemoryUsage() : 0.0));
-            }
-            
-            // 중요한 파일들
-            if (missionData.getWorkspaceFiles() != null && !missionData.getWorkspaceFiles().isEmpty()) {
-                userPrompt.append("## Important Workspace Files:\n");
-                for (Map.Entry<String, String> file : missionData.getWorkspaceFiles().entrySet()) {
-                    userPrompt.append(String.format("### %s:\n", file.getKey()));
-                    userPrompt.append("```\n");
-                    userPrompt.append(file.getValue());
-                    userPrompt.append("\n```\n\n");
-                }
-            }
+            appendExecutionStatistics(userPrompt, missionData);
+            appendCommandHistory(userPrompt, missionData);
+            appendFailedCommands(userPrompt, missionData);
+            appendResourceUsage(userPrompt, missionData);
+            appendWorkspaceFiles(userPrompt, missionData);
             
             userPrompt.append("IMPORTANT: 위의 실제 실행 데이터를 기반으로 구체적이고 객관적인 평가를 수행하세요.\n");
             userPrompt.append("각 명령어의 성공/실패, 실행 시간, 리소스 사용량 등을 종합적으로 분석하여 점수를 부여하세요.\n\n");
         }
-        
-        // === [Optional Aggregates] 섹션 ===
-        // 실습 전체에 대한 요약 통계와 집계 데이터
-        // - 명령어 실행 통계: 성공/실패 비율로 학습자의 명령어 숙련도 평가
-        // - 리소스 사용 통계: CPU/메모리 사용률로 효율성 분석
-        // - 실행 시간 통계: 전체 소요 시간으로 작업 속도 평가
+    }
+    
+    private void appendExecutionStatistics(StringBuilder userPrompt, EvaluationDataResponse missionData) {
+        if (missionData.getStatistics() != null) {
+            var stats = missionData.getStatistics();
+            userPrompt.append("## Execution Statistics:\n");
+            userPrompt.append(String.format("- Total Commands: %d\n", stats.getTotalCommands()));
+            userPrompt.append(String.format("- Successful Commands: %d\n", stats.getSuccessfulCommands()));
+            userPrompt.append(String.format("- Failed Commands: %d\n", stats.getFailedCommands()));
+            userPrompt.append(String.format("- Success Rate: %.2f%%\n", stats.getSuccessRate()));
+            userPrompt.append(String.format("- Total Execution Time: %d ms\n\n", stats.getTotalExecutionTimeMs()));
+        }
+    }
+    
+    private void appendCommandHistory(StringBuilder userPrompt, EvaluationDataResponse missionData) {
+        if (missionData.getCommandHistory() != null && !missionData.getCommandHistory().isEmpty()) {
+            userPrompt.append("## Command Execution History:\n");
+            userPrompt.append(EvaluationConstants.CODE_SNIPPET_MARKDOWN);
+            
+            int count = 0;
+            for (var cmd : missionData.getCommandHistory()) {
+                count++;
+                userPrompt.append(String.format("[%d] %s\n", count, cmd.getExecutedAt()));
+                userPrompt.append(String.format(EvaluationConstants.COMMAND_FORMAT, cmd.getCommand()));
+                userPrompt.append(String.format("Working Dir: %s\n", cmd.getWorkingDirectory()));
+                userPrompt.append(String.format(EvaluationConstants.EXIT_CODE_FORMAT, cmd.getExitCode() != null ? cmd.getExitCode() : -1));
+                userPrompt.append(String.format("Duration: %d ms\n", cmd.getDurationMs() != null ? cmd.getDurationMs() : 0));
+                
+                if (cmd.getOutput() != null && !cmd.getOutput().trim().isEmpty()) {
+                    String output = cmd.getOutput().length() > 200 ? 
+                        cmd.getOutput().substring(0, 200) + "..." : cmd.getOutput();
+                    userPrompt.append(String.format("Output: %s\n", output));
+                }
+                userPrompt.append("---\n");
+                
+                if (count >= 20) {
+                    userPrompt.append(String.format("... (%d more commands)\n", missionData.getCommandHistory().size() - 20));
+                    break;
+                }
+            }
+            userPrompt.append("```\n\n");
+        }
+    }
+    
+    private void appendFailedCommands(StringBuilder userPrompt, EvaluationDataResponse missionData) {
+        if (missionData.getFailedCommands() != null && !missionData.getFailedCommands().isEmpty()) {
+            userPrompt.append("## Failed Commands Analysis:\n");
+            userPrompt.append(EvaluationConstants.CODE_SNIPPET_MARKDOWN);
+            
+            for (var failedCmd : missionData.getFailedCommands()) {
+                userPrompt.append(String.format(EvaluationConstants.COMMAND_FORMAT, failedCmd.getCommand()));
+                userPrompt.append(String.format(EvaluationConstants.EXIT_CODE_FORMAT, failedCmd.getExitCode()));
+                userPrompt.append(String.format("Error Output: %s\n", 
+                    failedCmd.getOutput() != null ? failedCmd.getOutput().substring(0, Math.min(150, failedCmd.getOutput().length())) : "None"));
+                userPrompt.append("---\n");
+            }
+            userPrompt.append("```\n\n");
+        }
+    }
+    
+    private void appendResourceUsage(StringBuilder userPrompt, EvaluationDataResponse missionData) {
+        if (missionData.getResourceUsage() != null) {
+            var resource = missionData.getResourceUsage();
+            userPrompt.append("## Resource Usage:\n");
+            userPrompt.append(String.format("- Average CPU: %.2f%%\n", resource.getAverageCpuUsage() != null ? resource.getAverageCpuUsage() : 0.0));
+            userPrompt.append(String.format("- Max CPU: %.2f%%\n", resource.getMaxCpuUsage() != null ? resource.getMaxCpuUsage() : 0.0));
+            userPrompt.append(String.format("- Average Memory: %.2f MB\n", resource.getAverageMemoryUsage() != null ? resource.getAverageMemoryUsage() : 0.0));
+            userPrompt.append(String.format("- Max Memory: %.2f MB\n\n", resource.getMaxMemoryUsage() != null ? resource.getMaxMemoryUsage() : 0.0));
+        }
+    }
+    
+    private void appendWorkspaceFiles(StringBuilder userPrompt, EvaluationDataResponse missionData) {
+        if (missionData.getWorkspaceFiles() != null && !missionData.getWorkspaceFiles().isEmpty()) {
+            userPrompt.append("## Important Workspace Files:\n");
+            for (Map.Entry<String, String> file : missionData.getWorkspaceFiles().entrySet()) {
+                userPrompt.append(String.format("### %s:\n", file.getKey()));
+                userPrompt.append(EvaluationConstants.CODE_SNIPPET_MARKDOWN);
+                userPrompt.append(file.getValue());
+                userPrompt.append("\n```\n\n");
+            }
+        }
+    }
+    
+    private void appendOptionalAggregates(StringBuilder userPrompt, MissionCompletedEvent.SimpleStatistics statistics) {
         if (statistics != null && hasStatisticsData(statistics)) {
             userPrompt.append("\n[Optional Aggregates]\n");
             
-            // === 명령어 실행 통계 분석 ===
-            // - 전체 명령어 수 대비 성공률로 기술 숙련도 측정
-            // - 주요 오류 메시지를 통해 일반적인 실수 패턴 파악
-            // - 실패 원인 분석으로 학습 포인트 제시
-            if (statistics.getCommandSuccessCount() != null || statistics.getCommandFailureCount() != null) {
-                int total = Optional.ofNullable(statistics.getCommandSuccessCount()).orElse(0) + 
-                           Optional.ofNullable(statistics.getCommandFailureCount()).orElse(0);
-                userPrompt.append("- command_stats:\n");
-                userPrompt.append(String.format("  total: %d, success: %d, failed: %d%n", 
-                    total,
-                    Optional.ofNullable(statistics.getCommandSuccessCount()).orElse(0),
-                    Optional.ofNullable(statistics.getCommandFailureCount()).orElse(0)));
-                
-                // 주요 오류 메시지 - 가장 빈번한 오류들을 통해 일반적인 문제점 식별
-                if (statistics.getTopErrorMessages() != null && !statistics.getTopErrorMessages().isEmpty()) {
-                    userPrompt.append("  top_errors: [");
-                    for (int i = 0; i < Math.min(3, statistics.getTopErrorMessages().size()); i++) {
-                        if (i > 0) userPrompt.append(", ");
-                        userPrompt.append(String.format("\"%s\"", statistics.getTopErrorMessages().get(i)));
-                    }
-                    userPrompt.append("]\n");
-                }
-            }
+            appendCommandStatistics(userPrompt, statistics);
+            appendResourceStatistics(userPrompt, statistics);
+            appendTimelineStatistics(userPrompt, statistics);
+        }
+    }
+    
+    private void appendCommandStatistics(StringBuilder userPrompt, MissionCompletedEvent.SimpleStatistics statistics) {
+        if (statistics.getCommandSuccessCount() != null || statistics.getCommandFailureCount() != null) {
+            int total = Optional.ofNullable(statistics.getCommandSuccessCount()).orElse(0) + 
+                       Optional.ofNullable(statistics.getCommandFailureCount()).orElse(0);
+            userPrompt.append("- command_stats:\n");
+            userPrompt.append(String.format("  total: %d, success: %d, failed: %d%n", 
+                total,
+                Optional.ofNullable(statistics.getCommandSuccessCount()).orElse(0),
+                Optional.ofNullable(statistics.getCommandFailureCount()).orElse(0)));
             
-            // === 시스템 리소스 사용률 통계 분석 ===
-            // - 평균 CPU 사용률: 작업의 연산 집약도와 최적화 수준 평가
-            // - 최대 CPU 사용률: 피크 시점에서의 시스템 부하 분석
-            // - 평균/최대 메모리 사용량: 메모리 효율성과 리소스 관리 능력 측정
-            if (statistics.getAverageCpuUsage() != null || statistics.getAverageMemoryUsage() != null) {
-                userPrompt.append("- resource_stats:\n");
-                if (statistics.getAverageCpuUsage() != null) {
-                    userPrompt.append(String.format("  cpu_avg_pct: %.2f", statistics.getAverageCpuUsage()));
-                    if (statistics.getMaxCpuUsage() != null) {
-                        userPrompt.append(String.format(", cpu_max_pct: %.2f", statistics.getMaxCpuUsage()));
-                    }
-                    userPrompt.append("\n");
+            if (statistics.getTopErrorMessages() != null && !statistics.getTopErrorMessages().isEmpty()) {
+                userPrompt.append("  top_errors: [");
+                for (int i = 0; i < Math.min(3, statistics.getTopErrorMessages().size()); i++) {
+                    if (i > 0) userPrompt.append(", ");
+                    userPrompt.append(String.format("\"%s\"", statistics.getTopErrorMessages().get(i)));
                 }
-                if (statistics.getAverageMemoryUsage() != null) {
-                    userPrompt.append(String.format("  mem_avg_mb: %.2f", statistics.getAverageMemoryUsage()));
-                    if (statistics.getMaxMemoryUsage() != null) {
-                        userPrompt.append(String.format(", mem_max_mb: %.2f", statistics.getMaxMemoryUsage()));
-                    }
-                    userPrompt.append("\n");
-                }
-            }
-            
-            // === 실행 시간 통계 분석 ===
-            // - 전체 실행 시간: 작업 효율성과 불필요한 대기 시간 여부 판단
-            // - 시간 효율성을 통한 실무 역량 평가
-            if (statistics.getTotalExecutionTime() != null) {
-                userPrompt.append("- timeline:\n");
-                userPrompt.append(String.format("  duration_sec: %.1f%n", statistics.getTotalExecutionTime() / 1000.0));
+                userPrompt.append("]\n");
             }
         }
-        
-        // === [PRODUCTION EVALUATION RUBRIC] 섹션 ===
-        // AI 모델이 반드시 준수해야 할 평가 기준과 출력 형식
-        // - 정량적 평가 기준: correctness, efficiency, quality 각각 1-5점
-        // - 정성적 피드백: 구체적인 개선사항과 근거 데이터 제시
-        // - JSON 구조화: 일관된 데이터 형식으로 후속 처리 가능
+    }
+    
+    private void appendResourceStatistics(StringBuilder userPrompt, MissionCompletedEvent.SimpleStatistics statistics) {
+        if (statistics.getAverageCpuUsage() != null || statistics.getAverageMemoryUsage() != null) {
+            userPrompt.append("- resource_stats:\n");
+            if (statistics.getAverageCpuUsage() != null) {
+                userPrompt.append(String.format("  cpu_avg_pct: %.2f", statistics.getAverageCpuUsage()));
+                if (statistics.getMaxCpuUsage() != null) {
+                    userPrompt.append(String.format(", cpu_max_pct: %.2f", statistics.getMaxCpuUsage()));
+                }
+                userPrompt.append("\n");
+            }
+            if (statistics.getAverageMemoryUsage() != null) {
+                userPrompt.append(String.format("  mem_avg_mb: %.2f", statistics.getAverageMemoryUsage()));
+                if (statistics.getMaxMemoryUsage() != null) {
+                    userPrompt.append(String.format(", mem_max_mb: %.2f", statistics.getMaxMemoryUsage()));
+                }
+                userPrompt.append("\n");
+            }
+        }
+    }
+    
+    private void appendTimelineStatistics(StringBuilder userPrompt, MissionCompletedEvent.SimpleStatistics statistics) {
+        if (statistics.getTotalExecutionTime() != null) {
+            userPrompt.append("- timeline:\n");
+            userPrompt.append(String.format("  duration_sec: %.1f%n", statistics.getTotalExecutionTime() / 1000.0));
+        }
+    }
+    
+    private void appendEvaluationRubric(StringBuilder userPrompt) {
         userPrompt.append("""
             
             [PRODUCTION EVALUATION RUBRIC - MANDATORY SCORING]
             실제 운영 환경 로그를 바탕으로 다음 기준에 따라 반드시 점수를 부여하세요:
             
             - correctness (1~5): 실행된 명령어들의 성공/실패 비율과 목표 달성도
-              // 미션 목표와 체크리스트 대비 실제 달성도를 정량적으로 평가
-              // 명령어 실행 성공률과 최종 결과물의 정확성 측정
             - efficiency (1~5): CPU/Memory/네트워크 리소스 사용 효율성과 실행 시간
-              // 시스템 리소스의 적절한 사용과 불필요한 낭비 방지 정도 평가
-              // 실행 시간 최적화와 성능 효율성 측정
             - quality (1~5): 명령어 구조와 에러 처리 방식의 품질
-              // 코드의 가독성, 구조적 완성도, 오류 상황 대응 능력 평가
-              // DevOps 모범 사례 준수 여부와 유지보수성 고려
             
             [REQUIRED JSON RESPONSE - NO EXCEPTIONS]
-            // AI 모델은 반드시 아래 JSON 구조로만 응답해야 함
-            // 각 필드는 후속 처리 시스템에서 파싱되어 데이터베이스에 저장됨
             {
               "correctness": {"score": 1~5, "reason": "실제 실행 결과 기반 분석"},
               "efficiency": {"score": 1~5, "reason": "리소스 메트릭 기반 분석"},
               "quality": {"score": 1~5, "reason": "명령어 품질 및 에러 처리 분석"},
-              "total_score": 3~15,  // 위 3개 점수의 합계 (자동 계산)
+              "total_score": 3~15,
               "feedback": "운영 환경 로그 분석 결과 (구체적 성취사항과 개선점)",
               "improvements": ["실제 로그 기반 구체적 개선 제안"],
               "missed_steps": ["체크리스트 미충족 항목"],
@@ -553,8 +556,8 @@ public class GeminiEvaluationService {
                 "optimization_suggestions": ["성능 최적화 제안사항"]
               },
               "evidence": {
-                "key_commands": ["평가에 중요한 핵심 명령어들"],  // 평가 근거가 되는 실제 명령어들
-                "performance_data": "실제 측정된 자원 사용 패턴",  // 성능 분석 근거 데이터
+                "key_commands": ["평가에 중요한 핵심 명령어들"],
+                "performance_data": "실제 측정된 자원 사용 패턴",
                 "error_patterns": ["발견된 주요 오류 패턴들"]
               }
             }
@@ -565,16 +568,6 @@ public class GeminiEvaluationService {
             - 실제 로그 데이터의 기술적 내용만 분석
             - JSON 형식 외 추가 텍스트 금지
             """);
-        
-        // === 최종 프롬프트 조합 ===
-        // 시스템 프롬프트(역할 정의) + 사용자 프롬프트(평가 데이터)를 결합
-        // 이렇게 구조화된 프롬프트를 통해 AI는 다음을 수행:
-        // 1. 미션 목표 대비 달성도 평가 (correctness)
-        // 2. 시스템 리소스 효율성 분석 (efficiency) 
-        // 3. 코드 품질과 구조 검토 (quality)
-        // 4. 실제 실행 로그 기반의 객관적 근거 제시
-        // 5. 학습자 맞춤형 개선사항 제안
-        return systemPrompt.toString() + "\n\nUser:\n" + userPrompt.toString();
     }
     
     /**
@@ -600,6 +593,19 @@ public class GeminiEvaluationService {
      * 실제 실행 데이터를 포함한 향상된 평가 프롬프트 생성
      */
     private String buildEnhancedEvaluationPromptWithRealData(MissionCompletedEvent event, String s3Data) {
+        StringBuilder systemPrompt = buildRealDataSystemPrompt();
+        StringBuilder userPrompt = new StringBuilder();
+        
+        appendMissionInformation(userPrompt, event);
+        appendSubmittedCode(userPrompt, event);
+        appendRealExecutionDataForEvent(userPrompt, event);
+        appendS3FallbackData(userPrompt, s3Data);
+        appendLearningObjectiveEvaluationRequirements(userPrompt);
+        
+        return systemPrompt.toString() + "\n\n" + userPrompt.toString();
+    }
+    
+    private StringBuilder buildRealDataSystemPrompt() {
         StringBuilder systemPrompt = new StringBuilder();
         systemPrompt.append("""
             당신은 경험이 풍부한 DevOps 전문가입니다. 학습자의 실습 결과를 평가하고 건설적인 피드백을 제공하는 것이 목표입니다.
@@ -615,13 +621,14 @@ public class GeminiEvaluationService {
             - efficiency (1~5): 리소스 사용 효율성과 실행 시간
             - quality (1~5): 작업 품질과 DevOps 모범사례 준수
             """);
-        
-        StringBuilder userPrompt = new StringBuilder();
+        return systemPrompt;
+    }
+    
+    private void appendMissionInformation(StringBuilder userPrompt, MissionCompletedEvent event) {
         userPrompt.append("[MISSION INFORMATION]\n");
         userPrompt.append(String.format("Mission: %s\n", event.getMissionTitle()));
         userPrompt.append(String.format("Type: %s\n", event.getMissionType()));
         
-        // 학습 목표 및 평가 기준 추가
         if (event.getEvaluationCriteria() != null && !event.getEvaluationCriteria().trim().isEmpty()) {
             userPrompt.append("\n[학습 목표 및 평가 기준]\n");
             userPrompt.append("이 미션의 학습 목표를 반드시 평가해주세요:\n");
@@ -629,7 +636,6 @@ public class GeminiEvaluationService {
             userPrompt.append("\n");
         }
         
-        // 미션 가이드 추가
         if (event.getMissionGuide() != null && !event.getMissionGuide().trim().isEmpty()) {
             userPrompt.append("[미션 가이드]\n");
             String guide = event.getMissionGuide();
@@ -639,107 +645,123 @@ public class GeminiEvaluationService {
             userPrompt.append(guide);
             userPrompt.append("\n\n");
         }
-        
+    }
+    
+    private void appendSubmittedCode(StringBuilder userPrompt, MissionCompletedEvent event) {
         userPrompt.append("\n[SUBMITTED CODE]\n");
-        userPrompt.append("```\n");
+        userPrompt.append(EvaluationConstants.CODE_SNIPPET_MARKDOWN);
         userPrompt.append(event.getCode() != null ? event.getCode() : "No code submitted");
         userPrompt.append("\n```\n\n");
-        
-        // 실제 실행 데이터 추가
+    }
+    
+    private void appendRealExecutionDataForEvent(StringBuilder userPrompt, MissionCompletedEvent event) {
         MissionCompletedEvent.RealExecutionData realData = event.getRealExecutionData();
         if (realData != null) {
             userPrompt.append("[REAL EXECUTION DATA]\n");
             
-            // 전체 통계
-            if (realData.getStatistics() != null) {
-                var stats = realData.getStatistics();
-                userPrompt.append("## Execution Statistics:\n");
-                userPrompt.append(String.format("- Total Commands: %d\n", stats.getTotalCommands()));
-                userPrompt.append(String.format("- Successful Commands: %d\n", stats.getSuccessfulCommands()));
-                userPrompt.append(String.format("- Failed Commands: %d\n", stats.getFailedCommands()));
-                userPrompt.append(String.format("- Success Rate: %.2f%%\n", stats.getSuccessRate()));
-                userPrompt.append(String.format("- Total Execution Time: %d ms\n\n", stats.getTotalExecutionTimeMs()));
-            }
-            
-            // 명령어 실행 히스토리
-            if (realData.getCommandHistory() != null && !realData.getCommandHistory().isEmpty()) {
-                userPrompt.append("## Command Execution History:\n");
-                userPrompt.append("```\n");
-                
-                int count = 0;
-                for (var cmd : realData.getCommandHistory()) {
-                    count++;
-                    userPrompt.append(String.format("[%d] %s\n", count, cmd.getExecutedAt()));
-                    userPrompt.append(String.format("Command: %s\n", cmd.getCommand()));
-                    userPrompt.append(String.format("Working Dir: %s\n", cmd.getWorkingDirectory()));
-                    userPrompt.append(String.format("Exit Code: %d\n", cmd.getExitCode() != null ? cmd.getExitCode() : -1));
-                    userPrompt.append(String.format("Duration: %d ms\n", cmd.getDurationMs() != null ? cmd.getDurationMs() : 0));
-                    
-                    if (cmd.getOutput() != null && !cmd.getOutput().trim().isEmpty()) {
-                        String output = cmd.getOutput().length() > 200 ? 
-                            cmd.getOutput().substring(0, 200) + "..." : cmd.getOutput();
-                        userPrompt.append(String.format("Output: %s\n", output));
-                    }
-                    userPrompt.append("---\n");
-                    
-                    // 첫 20개 명령어만 표시
-                    if (count >= 20) {
-                        userPrompt.append(String.format("... (%d more commands)\n", realData.getCommandHistory().size() - 20));
-                        break;
-                    }
-                }
-                userPrompt.append("```\n\n");
-            }
-            
-            // 실패한 명령어들
-            if (realData.getFailedCommands() != null && !realData.getFailedCommands().isEmpty()) {
-                userPrompt.append("## Failed Commands Analysis:\n");
-                userPrompt.append("```\n");
-                
-                for (var failedCmd : realData.getFailedCommands()) {
-                    userPrompt.append(String.format("Command: %s\n", failedCmd.getCommand()));
-                    userPrompt.append(String.format("Exit Code: %d\n", failedCmd.getExitCode()));
-                    userPrompt.append(String.format("Error Output: %s\n", 
-                        failedCmd.getOutput() != null ? failedCmd.getOutput().substring(0, Math.min(150, failedCmd.getOutput().length())) : "None"));
-                    userPrompt.append("---\n");
-                }
-                userPrompt.append("```\n\n");
-            }
-            
-            // 리소스 사용량
-            if (realData.getResourceUsage() != null) {
-                var resource = realData.getResourceUsage();
-                userPrompt.append("## Resource Usage:\n");
-                userPrompt.append(String.format("- Average CPU: %.2f%%\n", resource.getAverageCpuUsage() != null ? resource.getAverageCpuUsage() : 0.0));
-                userPrompt.append(String.format("- Max CPU: %.2f%%\n", resource.getMaxCpuUsage() != null ? resource.getMaxCpuUsage() : 0.0));
-                userPrompt.append(String.format("- Average Memory: %.2f MB\n", resource.getAverageMemoryUsage() != null ? resource.getAverageMemoryUsage() : 0.0));
-                userPrompt.append(String.format("- Max Memory: %.2f MB\n\n", resource.getMaxMemoryUsage() != null ? resource.getMaxMemoryUsage() : 0.0));
-            }
-            
-            // 워크스페이스 파일들
-            if (realData.getWorkspaceFiles() != null && !realData.getWorkspaceFiles().isEmpty()) {
-                userPrompt.append("## Important Workspace Files:\n");
-                for (var fileEntry : realData.getWorkspaceFiles().entrySet()) {
-                    userPrompt.append(String.format("### %s:\n", fileEntry.getKey()));
-                    userPrompt.append("```\n");
-                    userPrompt.append(fileEntry.getValue());
-                    userPrompt.append("\n```\n\n");
-                }
-            }
+            appendRealExecutionStatistics(userPrompt, realData);
+            appendRealCommandHistory(userPrompt, realData);
+            appendRealFailedCommands(userPrompt, realData);
+            appendRealResourceUsage(userPrompt, realData);
+            appendRealWorkspaceFiles(userPrompt, realData);
             
             userPrompt.append("IMPORTANT: 위의 실제 실행 데이터를 기반으로 구체적이고 객관적인 평가를 수행하세요.\n");
             userPrompt.append("각 명령어의 성공/실패, 실행 시간, 리소스 사용량 등을 종합적으로 분석하여 점수를 부여하세요.\n");
             userPrompt.append("특히 학습 목표별로 실제 명령어 실행 결과를 매칭하여 달성도를 평가하세요.\n\n");
         }
-        
-        // S3 데이터 fallback 지원
+    }
+    
+    private void appendRealExecutionStatistics(StringBuilder userPrompt, MissionCompletedEvent.RealExecutionData realData) {
+        if (realData.getStatistics() != null) {
+            var stats = realData.getStatistics();
+            userPrompt.append("## Execution Statistics:\n");
+            userPrompt.append(String.format("- Total Commands: %d\n", stats.getTotalCommands()));
+            userPrompt.append(String.format("- Successful Commands: %d\n", stats.getSuccessfulCommands()));
+            userPrompt.append(String.format("- Failed Commands: %d\n", stats.getFailedCommands()));
+            userPrompt.append(String.format("- Success Rate: %.2f%%\n", stats.getSuccessRate()));
+            userPrompt.append(String.format("- Total Execution Time: %d ms\n\n", stats.getTotalExecutionTimeMs()));
+        }
+    }
+    
+    private void appendRealCommandHistory(StringBuilder userPrompt, MissionCompletedEvent.RealExecutionData realData) {
+        if (realData.getCommandHistory() != null && !realData.getCommandHistory().isEmpty()) {
+            userPrompt.append("## Command Execution History:\n");
+            userPrompt.append(EvaluationConstants.CODE_SNIPPET_MARKDOWN);
+            
+            int count = 0;
+            for (var cmd : realData.getCommandHistory()) {
+                count++;
+                userPrompt.append(String.format("[%d] %s\n", count, cmd.getExecutedAt()));
+                userPrompt.append(String.format(EvaluationConstants.COMMAND_FORMAT, cmd.getCommand()));
+                userPrompt.append(String.format("Working Dir: %s\n", cmd.getWorkingDirectory()));
+                userPrompt.append(String.format(EvaluationConstants.EXIT_CODE_FORMAT, cmd.getExitCode() != null ? cmd.getExitCode() : -1));
+                userPrompt.append(String.format("Duration: %d ms\n", cmd.getDurationMs() != null ? cmd.getDurationMs() : 0));
+                
+                if (cmd.getOutput() != null && !cmd.getOutput().trim().isEmpty()) {
+                    String output = cmd.getOutput().length() > 200 ? 
+                        cmd.getOutput().substring(0, 200) + "..." : cmd.getOutput();
+                    userPrompt.append(String.format("Output: %s\n", output));
+                }
+                userPrompt.append("---\n");
+                
+                if (count >= 20) {
+                    userPrompt.append(String.format("... (%d more commands)\n", realData.getCommandHistory().size() - 20));
+                    break;
+                }
+            }
+            userPrompt.append("```\n\n");
+        }
+    }
+    
+    private void appendRealFailedCommands(StringBuilder userPrompt, MissionCompletedEvent.RealExecutionData realData) {
+        if (realData.getFailedCommands() != null && !realData.getFailedCommands().isEmpty()) {
+            userPrompt.append("## Failed Commands Analysis:\n");
+            userPrompt.append(EvaluationConstants.CODE_SNIPPET_MARKDOWN);
+            
+            for (var failedCmd : realData.getFailedCommands()) {
+                userPrompt.append(String.format(EvaluationConstants.COMMAND_FORMAT, failedCmd.getCommand()));
+                userPrompt.append(String.format(EvaluationConstants.EXIT_CODE_FORMAT, failedCmd.getExitCode()));
+                userPrompt.append(String.format("Error Output: %s\n", 
+                    failedCmd.getOutput() != null ? failedCmd.getOutput().substring(0, Math.min(150, failedCmd.getOutput().length())) : "None"));
+                userPrompt.append("---\n");
+            }
+            userPrompt.append("```\n\n");
+        }
+    }
+    
+    private void appendRealResourceUsage(StringBuilder userPrompt, MissionCompletedEvent.RealExecutionData realData) {
+        if (realData.getResourceUsage() != null) {
+            var resource = realData.getResourceUsage();
+            userPrompt.append("## Resource Usage:\n");
+            userPrompt.append(String.format("- Average CPU: %.2f%%\n", resource.getAverageCpuUsage() != null ? resource.getAverageCpuUsage() : 0.0));
+            userPrompt.append(String.format("- Max CPU: %.2f%%\n", resource.getMaxCpuUsage() != null ? resource.getMaxCpuUsage() : 0.0));
+            userPrompt.append(String.format("- Average Memory: %.2f MB\n", resource.getAverageMemoryUsage() != null ? resource.getAverageMemoryUsage() : 0.0));
+            userPrompt.append(String.format("- Max Memory: %.2f MB\n\n", resource.getMaxMemoryUsage() != null ? resource.getMaxMemoryUsage() : 0.0));
+        }
+    }
+    
+    private void appendRealWorkspaceFiles(StringBuilder userPrompt, MissionCompletedEvent.RealExecutionData realData) {
+        if (realData.getWorkspaceFiles() != null && !realData.getWorkspaceFiles().isEmpty()) {
+            userPrompt.append("## Important Workspace Files:\n");
+            for (var fileEntry : realData.getWorkspaceFiles().entrySet()) {
+                userPrompt.append(String.format("### %s:\n", fileEntry.getKey()));
+                userPrompt.append(EvaluationConstants.CODE_SNIPPET_MARKDOWN);
+                userPrompt.append(fileEntry.getValue());
+                userPrompt.append("\n```\n\n");
+            }
+        }
+    }
+    
+    private void appendS3FallbackData(StringBuilder userPrompt, String s3Data) {
         if (s3Data != null && !s3Data.trim().isEmpty()) {
             userPrompt.append("[ADDITIONAL S3 DATA (FALLBACK)]\n");
             userPrompt.append("```json\n");
             userPrompt.append(s3Data);
             userPrompt.append("\n```\n\n");
         }
-        
+    }
+    
+    private void appendLearningObjectiveEvaluationRequirements(StringBuilder userPrompt) {
         userPrompt.append("""
             [학습 목표 평가 필수]
             위에 제시된 학습 목표(evaluationCriteria)를 기준으로 각 목표별 달성도를 평가하세요.
@@ -777,7 +799,6 @@ public class GeminiEvaluationService {
             }
             """);
         
-        return systemPrompt.toString() + "\n\n" + userPrompt.toString();
     }
     
     private String callGeminiApi(String prompt) {
@@ -786,37 +807,9 @@ public class GeminiEvaluationService {
         for (int attempt = 1; attempt <= maxRetryAttempts; attempt++) {
             try {
                 log.info("Calling Gemini API - attempt {}/{}", attempt, maxRetryAttempts);
-                
-                HttpHeaders headers = new HttpHeaders();
-                headers.setContentType(MediaType.APPLICATION_JSON);
-                
-                Map<String, Object> requestBody = new HashMap<>();
-                Map<String, Object> content = new HashMap<>();
-                Map<String, String> part = new HashMap<>();
-                part.put("text", prompt);
-                content.put("parts", List.of(part));
-                requestBody.put("contents", List.of(content));
-                
-                Map<String, Object> generationConfig = new HashMap<>();
-                generationConfig.put("temperature", 0.3);
-                generationConfig.put("topP", 0.8);
-                generationConfig.put("maxOutputTokens", 2048);
-                requestBody.put("generationConfig", generationConfig);
-                
-                String url = geminiApiUrl + "?key=" + geminiApiKey;
-                HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
-                
-                ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
-                
-                if (response.getStatusCode() == HttpStatus.OK) {
-                    log.info("Gemini API call successful on attempt {}", attempt);
-                    String responseBody = response.getBody();
-                    log.debug("===== GEMINI API 원본 응답 시작 =====");
-                    log.debug("Response body: {}", responseBody);
-                    log.debug("===== GEMINI API 원본 응답 끝 =====");
-                    return responseBody;
-                } else {
-                    throw new RuntimeException("Gemini API call failed with status: " + response.getStatusCode());
+                String response = attemptGeminiApiCall(prompt);
+                if (response != null) {
+                    return response;
                 }
                 
             } catch (ResourceAccessException e) {
@@ -828,45 +821,90 @@ public class GeminiEvaluationService {
                 log.warn("Gemini API server error on attempt {}/{}: {} - {}", attempt, maxRetryAttempts, e.getStatusCode(), e.getMessage());
                 
             } catch (HttpClientErrorException e) {
-                // 클라이언트 에러는 재시도하지 않음 (API 키 문제, 잘못된 요청 등)
                 log.error("Gemini API client error (not retrying): {} - {}", e.getStatusCode(), e.getMessage());
-                throw new RuntimeException("Gemini API client error: " + e.getStatusCode() + " - " + e.getMessage(), e);
+                throw new GeminiApiException("Gemini API client error: " + e.getStatusCode() + " - " + e.getMessage(), e);
                 
             } catch (Exception e) {
                 lastException = e;
                 log.warn("Gemini API error on attempt {}/{}: {}", attempt, maxRetryAttempts, e.getMessage());
             }
             
-            // 마지막 시도가 아니면 잠시 대기
             if (attempt < maxRetryAttempts) {
-                try {
-                    long delayMs = retryDelaySeconds * 1000L * attempt; // 점진적 백오프
-                    log.info("Waiting {}ms before retry...", delayMs);
-                    // 비동기 대기 구현: CompletableFuture를 사용하여 블로킹 없이 지연 처리
-                    try {
-                        java.util.concurrent.CompletableFuture
-                            .supplyAsync(() -> {
-                                try {
-                                    Thread.sleep(delayMs);
-                                    return null;
-                                } catch (InterruptedException e) {
-                                    Thread.currentThread().interrupt();
-                                    throw new RuntimeException("Async delay interrupted", e);
-                                }
-                            })
-                            .get(); // 동기 대기 - 현재 컨텍스트에서는 불가피
-                    } catch (java.util.concurrent.ExecutionException e) {
-                        throw new RuntimeException("Async delay failed", e);
-                    }
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    throw new RuntimeException("Retry interrupted", ie);
-                }
+                waitBeforeRetry(attempt);
             }
         }
         
         log.error("All Gemini API attempts failed after {} tries", maxRetryAttempts);
-        throw new RuntimeException("Failed to call Gemini API after " + maxRetryAttempts + " attempts", lastException);
+        throw new GeminiApiException("Failed to call Gemini API after " + maxRetryAttempts + " attempts", lastException);
+    }
+    
+    private String attemptGeminiApiCall(String prompt) {
+        HttpEntity<Map<String, Object>> request = buildGeminiRequest(prompt);
+        String url = geminiApiUrl + "?key=" + geminiApiKey;
+        
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
+        
+        if (response.getStatusCode() == HttpStatus.OK) {
+            log.info("Gemini API call successful");
+            String responseBody = response.getBody();
+            log.debug("===== GEMINI API 원본 응답 시작 =====");
+            log.debug("Response body: {}", responseBody);
+            log.debug("===== GEMINI API 원본 응답 끝 =====");
+            return responseBody;
+        } else {
+            throw new GeminiApiException("Gemini API call failed with status: " + response.getStatusCode());
+        }
+    }
+    
+    private HttpEntity<Map<String, Object>> buildGeminiRequest(String prompt) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        
+        Map<String, Object> requestBody = createGeminiRequestBody(prompt);
+        return new HttpEntity<>(requestBody, headers);
+    }
+    
+    private Map<String, Object> createGeminiRequestBody(String prompt) {
+        Map<String, Object> requestBody = new HashMap<>();
+        Map<String, Object> content = new HashMap<>();
+        Map<String, String> part = new HashMap<>();
+        part.put("text", prompt);
+        content.put("parts", List.of(part));
+        requestBody.put("contents", List.of(content));
+        
+        Map<String, Object> generationConfig = new HashMap<>();
+        generationConfig.put("temperature", 0.3);
+        generationConfig.put("topP", 0.8);
+        generationConfig.put("maxOutputTokens", 2048);
+        requestBody.put("generationConfig", generationConfig);
+        
+        return requestBody;
+    }
+    
+    private void waitBeforeRetry(int attempt) {
+        try {
+            long delayMs = retryDelaySeconds * 1000L * attempt;
+            log.info("Waiting {}ms before retry...", delayMs);
+            
+            try {
+                java.util.concurrent.CompletableFuture
+                    .supplyAsync(() -> {
+                        try {
+                            Thread.sleep(delayMs);
+                            return null;
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new GeminiApiException("Async delay interrupted", e);
+                        }
+                    })
+                    .get();
+            } catch (java.util.concurrent.ExecutionException e) {
+                throw new GeminiApiException("Async delay failed", e);
+            }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new GeminiApiException("Retry interrupted", ie);
+        }
     }
     
     private EvaluationResultDTO parseGeminiResponse(String geminiResponse) {
@@ -881,85 +919,22 @@ public class GeminiEvaluationService {
             log.debug("===== GEMINI 응답 파싱 시작 끝 =====");
             
             JsonNode responseJson = objectMapper.readTree(geminiResponse);
-            
-            // API 응답 구조 검증
-            if (!responseJson.has("candidates")) {
-                log.error("Gemini response missing 'candidates' field");
-                return createFallbackResult("Invalid API response structure");
+            String textContent = extractTextContentFromResponse(responseJson);
+            if (textContent == null) {
+                return createFallbackResult("Failed to extract text content");
             }
             
-            JsonNode candidates = responseJson.path("candidates");
-            if (!candidates.isArray() || candidates.size() == 0) {
-                log.error("Gemini response has no candidates");
-                return createFallbackResult("No candidates in API response");
+            String jsonContent = extractAndValidateJsonContent(textContent);
+            if (jsonContent == null) {
+                return createFallbackResult("Failed to extract JSON content");
             }
             
-            JsonNode firstCandidate = candidates.get(0);
-            if (!firstCandidate.has("content")) {
-                log.error("First candidate missing 'content' field");
-                return createFallbackResult("Invalid candidate structure");
+            JsonNode parsedJson = parseJsonContent(jsonContent);
+            if (parsedJson == null) {
+                return createFallbackResult("Failed to parse JSON content");
             }
             
-            JsonNode content = firstCandidate.path("content");
-            if (!content.has("parts")) {
-                log.error("Content missing 'parts' field");
-                return createFallbackResult("Invalid content structure");
-            }
-            
-            JsonNode parts = content.path("parts");
-            if (!parts.isArray() || parts.size() == 0) {
-                log.error("Content has no parts");
-                return createFallbackResult("No parts in content");
-            }
-            
-            String textContent = parts.get(0).path("text").asText();
-            if (textContent.isEmpty()) {
-                log.error("Text content is empty");
-                return createFallbackResult("Empty text content");
-            }
-            
-            // JSON 부분만 추출 (마크다운 형태로 감싸져 있을 수 있음)
-            log.debug("===== 텍스트에서 JSON 추출 시작 =====");
-            log.debug("Original text content: {}", textContent);
-            String jsonContent = extractJsonFromResponse(textContent);
-            log.debug("Extracted JSON content: {}", jsonContent);
-            log.debug("===== 텍스트에서 JSON 추출 완료 =====");
-            if (jsonContent.isEmpty()) {
-                log.error("No JSON content found in response");
-                return createFallbackResult("No JSON found in response");
-            }
-            
-            // JSON 파싱 시도
-            JsonNode parsedJson;
-            try {
-                parsedJson = objectMapper.readTree(jsonContent);
-            } catch (com.fasterxml.jackson.core.JsonParseException jsonEx) {
-                log.error("JSON parse error in extracted content: {}", jsonContent.substring(0, Math.min(200, jsonContent.length())), jsonEx);
-                return createFallbackResult("Invalid JSON format: " + jsonEx.getMessage());
-            } catch (com.fasterxml.jackson.core.JsonProcessingException jsonEx) {
-                log.error("JSON processing error in extracted content: {}", jsonContent.substring(0, Math.min(200, jsonContent.length())), jsonEx);
-                return createFallbackResult("JSON processing error: " + jsonEx.getMessage());
-            } catch (Exception jsonEx) {
-                log.error("Unexpected error parsing JSON content: {}", jsonContent.substring(0, Math.min(200, jsonContent.length())), jsonEx);
-                return createFallbackResult("JSON parsing failed: " + jsonEx.getMessage());
-            }
-            
-            // 새로운 DevOps 채점관 형식인지 확인
-            log.debug("===== JSON 형식 확인 =====");
-            log.debug("Has total_score field: {}", parsedJson.has("total_score"));
-            log.debug("Has best_practice_score field: {}", parsedJson.has("best_practice_score"));
-            log.debug("Has reliability_score field: {}", parsedJson.has("reliability_score"));
-            log.debug("JSON field names: {}", parsedJson.fieldNames());
-            if (parsedJson.has("total_score")) {
-                log.info("✓ Parsing DevOps evaluation response format");
-                log.debug("DevOps JSON content: {}", jsonContent);
-                return parseDevOpsEvaluationResponse(parsedJson);
-            } else {
-                log.info("✗ Parsing legacy evaluation response format");
-                log.debug("Legacy JSON content: {}", jsonContent);
-                // 기존 형식으로 파싱
-                return objectMapper.readValue(jsonContent, EvaluationResultDTO.class);
-            }
+            return parseEvaluationResult(parsedJson, jsonContent);
             
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             log.error("JSON processing error parsing Gemini response: {}", geminiResponse.substring(0, Math.min(500, geminiResponse.length())), e);
@@ -967,6 +942,98 @@ public class GeminiEvaluationService {
         } catch (Exception e) {
             log.error("Unexpected error parsing Gemini response: {}", geminiResponse.substring(0, Math.min(500, geminiResponse.length())), e);
             return createFallbackResult("Parsing error: " + e.getMessage());
+        }
+    }
+    
+    private String extractTextContentFromResponse(JsonNode responseJson) {
+        if (!responseJson.has("candidates")) {
+            log.error("Gemini response missing 'candidates' field");
+            return null;
+        }
+        
+        JsonNode candidates = responseJson.path("candidates");
+        if (!candidates.isArray() || candidates.size() == 0) {
+            log.error("Gemini response has no candidates");
+            return null;
+        }
+        
+        JsonNode firstCandidate = candidates.get(0);
+        if (!firstCandidate.has("content")) {
+            log.error("First candidate missing 'content' field");
+            return null;
+        }
+        
+        JsonNode content = firstCandidate.path("content");
+        if (!content.has("parts")) {
+            log.error("Content missing 'parts' field");
+            return null;
+        }
+        
+        JsonNode parts = content.path("parts");
+        if (!parts.isArray() || parts.size() == 0) {
+            log.error("Content has no parts");
+            return null;
+        }
+        
+        String textContent = parts.get(0).path("text").asText();
+        if (textContent.isEmpty()) {
+            log.error("Text content is empty");
+            return null;
+        }
+        
+        return textContent;
+    }
+    
+    private String extractAndValidateJsonContent(String textContent) {
+        log.debug("===== 텍스트에서 JSON 추출 시작 =====");
+        log.debug("Original text content: {}", textContent);
+        String jsonContent = extractJsonFromResponse(textContent);
+        log.debug("Extracted JSON content: {}", jsonContent);
+        log.debug("===== 텍스트에서 JSON 추출 완료 =====");
+        
+        if (jsonContent.isEmpty()) {
+            log.error("No JSON content found in response");
+            return null;
+        }
+        
+        return jsonContent;
+    }
+    
+    private JsonNode parseJsonContent(String jsonContent) {
+        try {
+            return objectMapper.readTree(jsonContent);
+        } catch (com.fasterxml.jackson.core.JsonParseException jsonEx) {
+            log.error("JSON parse error in extracted content: {}", jsonContent.substring(0, Math.min(200, jsonContent.length())), jsonEx);
+            return null;
+        } catch (com.fasterxml.jackson.core.JsonProcessingException jsonEx) {
+            log.error("JSON processing error in extracted content: {}", jsonContent.substring(0, Math.min(200, jsonContent.length())), jsonEx);
+            return null;
+        } catch (Exception jsonEx) {
+            log.error("Unexpected error parsing JSON content: {}", jsonContent.substring(0, Math.min(200, jsonContent.length())), jsonEx);
+            return null;
+        }
+    }
+    
+    private EvaluationResultDTO parseEvaluationResult(JsonNode parsedJson, String jsonContent) {
+        log.debug("===== JSON 형식 확인 =====");
+        log.debug("Has total_score field: {}", parsedJson.has("total_score"));
+        log.debug("Has best_practice_score field: {}", parsedJson.has("best_practice_score"));
+        log.debug("Has reliability_score field: {}", parsedJson.has("reliability_score"));
+        log.debug("JSON field names: {}", parsedJson.fieldNames());
+        
+        try {
+            if (parsedJson.has("total_score")) {
+                log.info("✓ Parsing DevOps evaluation response format");
+                log.debug("DevOps JSON content: {}", jsonContent);
+                return parseDevOpsEvaluationResponse(parsedJson);
+            } else {
+                log.info("✗ Parsing legacy evaluation response format");
+                log.debug("Legacy JSON content: {}", jsonContent);
+                return objectMapper.readValue(jsonContent, EvaluationResultDTO.class);
+            }
+        } catch (Exception e) {
+            log.error("Error parsing evaluation result: {}", e.getMessage(), e);
+            return createFallbackResult("Evaluation result parsing error: " + e.getMessage());
         }
     }
     
@@ -978,60 +1045,74 @@ public class GeminiEvaluationService {
         log.debug("===== DevOps 응답 파싱 시작 =====");
         EvaluationResultDTO result = new EvaluationResultDTO();
         
-        // 새로운 형식의 점수들 파싱
+        setBasicScores(devOpsResponse, result);
+        setSecurityRiskLevel(devOpsResponse, result);
+        setEfficiencyGrade(devOpsResponse, result);
+        setEvaluationObjects(devOpsResponse, result);
+        setOverallFeedback(devOpsResponse, result);
+        buildDetailedFeedback(devOpsResponse, result);
+        
+        logFinalResults(result);
+        return result;
+    }
+    
+    private void setBasicScores(JsonNode devOpsResponse, EvaluationResultDTO result) {
         int totalScore = devOpsResponse.path("total_score").asInt();
         log.debug("Total score from JSON: {}", totalScore);
         result.setOverallScore(totalScore);
         
-        // 모범사례 점수와 신뢰도 점수 설정
         int bestPracticeScore = devOpsResponse.path("best_practice_score").asInt();
         int reliabilityScore = devOpsResponse.path("reliability_score").asInt();
         log.debug("Best practice score from JSON: {}", bestPracticeScore);
         log.debug("Reliability score from JSON: {}", reliabilityScore);
         result.setBestPracticeScore(bestPracticeScore);
         result.setReliabilityScore(reliabilityScore);
-        
-        // 보안 위험도 설정 (점수에 따라 등급 결정)
+    }
+    
+    private void setSecurityRiskLevel(JsonNode devOpsResponse, EvaluationResultDTO result) {
         int securityScore = devOpsResponse.path("security_score").asInt();
         log.debug("Security score from JSON: {}", securityScore);
+        
+        String riskLevel;
         if (securityScore >= 90) {
-            result.setSecurityRiskLevel("Low");
-            log.debug("Security risk level set to: Low");
+            riskLevel = "Low";
         } else if (securityScore >= 70) {
-            result.setSecurityRiskLevel("Medium");
-            log.debug("Security risk level set to: Medium");
+            riskLevel = "Medium";
         } else {
-            result.setSecurityRiskLevel("High");
-            log.debug("Security risk level set to: High");
+            riskLevel = "High";
         }
         
-        // 효율성 등급 설정 (점수에 따라 등급 결정)
+        result.setSecurityRiskLevel(riskLevel);
+        log.debug("Security risk level set to: {}", riskLevel);
+    }
+    
+    private void setEfficiencyGrade(JsonNode devOpsResponse, EvaluationResultDTO result) {
         int efficiencyScore = devOpsResponse.path("efficiency_score").asInt();
         log.debug("Efficiency score from JSON: {}", efficiencyScore);
+        
+        String grade;
         if (efficiencyScore >= 90) {
-            result.setEfficiencyGrade("A");
-            log.debug("Efficiency grade set to: A");
+            grade = "A";
         } else if (efficiencyScore >= 80) {
-            result.setEfficiencyGrade("B");
-            log.debug("Efficiency grade set to: B");
+            grade = "B";
         } else if (efficiencyScore >= 70) {
-            result.setEfficiencyGrade("C");
-            log.debug("Efficiency grade set to: C");
+            grade = "C";
         } else if (efficiencyScore >= 60) {
-            result.setEfficiencyGrade("D");
-            log.debug("Efficiency grade set to: D");
+            grade = "D";
         } else {
-            result.setEfficiencyGrade("F");
-            log.debug("Efficiency grade set to: F");
+            grade = "F";
         }
         
-        // CodeQuality 객체 생성 및 설정
+        result.setEfficiencyGrade(grade);
+        log.debug("Efficiency grade set to: {}", grade);
+    }
+    
+    private void setEvaluationObjects(JsonNode devOpsResponse, EvaluationResultDTO result) {
         EvaluationResultDTO.CodeQualityScore codeQuality = new EvaluationResultDTO.CodeQualityScore();
         codeQuality.setScore(devOpsResponse.path("quality_score").asInt());
         codeQuality.setFeedback(devOpsResponse.path("quality_feedback").asText());
         result.setCodeQuality(codeQuality);
         
-        // Security 객체 생성 및 설정  
         EvaluationResultDTO.SecurityScore security = new EvaluationResultDTO.SecurityScore();
         security.setScore(devOpsResponse.path("security_score").asInt());
         security.setFeedback(devOpsResponse.path("security_feedback").asText());
@@ -1040,7 +1121,6 @@ public class GeminiEvaluationService {
         security.setRecommendations("보안 모범 사례 준수 권장");
         result.setSecurity(security);
         
-        // Style 객체 생성 및 설정
         EvaluationResultDTO.StyleScore style = new EvaluationResultDTO.StyleScore();
         style.setScore(devOpsResponse.path("style_score").asInt());
         style.setFeedback(devOpsResponse.path("style_feedback").asText());
@@ -1048,77 +1128,78 @@ public class GeminiEvaluationService {
         style.setImprovements("가독성과 유지보수성 향상 권장");
         style.setCategory("DevOps Configuration");
         result.setStyle(style);
-        
-        // 피드백 설정
+    }
+    
+    private void setOverallFeedback(JsonNode devOpsResponse, EvaluationResultDTO result) {
         String overallFeedback = devOpsResponse.path("overall_feedback").asText();
         result.setFeedback(overallFeedback);
-        
-        // 세부 피드백들을 결합하여 상세 분석 생성
+    }
+    
+    private void buildDetailedFeedback(JsonNode devOpsResponse, EvaluationResultDTO result) {
         StringBuilder detailedFeedback = new StringBuilder();
+        
+        appendOverallFeedbackSection(devOpsResponse, detailedFeedback);
+        appendDetailedEvaluationSections(devOpsResponse, result, detailedFeedback);
+        appendStrengthsAndImprovements(devOpsResponse, detailedFeedback);
+        
+        result.setDetailedAnalysis(detailedFeedback.toString());
+    }
+    
+    private void appendOverallFeedbackSection(JsonNode devOpsResponse, StringBuilder detailedFeedback) {
         detailedFeedback.append("=== 종합 평가 ===\n");
-        detailedFeedback.append(overallFeedback).append("\n\n");
-        
+        detailedFeedback.append(devOpsResponse.path("overall_feedback").asText()).append("\n\n");
         detailedFeedback.append("=== 세부 평가 ===\n");
-        
-        String correctnessFeedback = devOpsResponse.path("correctness_feedback").asText();
-        if (!correctnessFeedback.isEmpty()) {
-            detailedFeedback.append("📋 정확성 평가: ").append(devOpsResponse.path("correctness_score").asInt()).append("점\n");
-            detailedFeedback.append(correctnessFeedback).append("\n\n");
-        }
-        
-        String efficiencyFeedback = devOpsResponse.path("efficiency_feedback").asText();
-        if (!efficiencyFeedback.isEmpty()) {
-            detailedFeedback.append("⚡ 효율성 평가: ").append(devOpsResponse.path("efficiency_score").asInt()).append("점\n");
-            detailedFeedback.append(efficiencyFeedback).append("\n\n");
-        }
+    }
+    
+    private void appendDetailedEvaluationSections(JsonNode devOpsResponse, EvaluationResultDTO result, StringBuilder detailedFeedback) {
+        appendEvaluationSection(devOpsResponse, detailedFeedback, "correctness", "📋 정확성 평가");
+        appendEvaluationSection(devOpsResponse, detailedFeedback, "efficiency", "⚡ 효율성 평가");
         
         String qualityFeedback = devOpsResponse.path("quality_feedback").asText();
         if (!qualityFeedback.isEmpty()) {
-            detailedFeedback.append("🎯 품질 평가: ").append(codeQuality.getScore()).append("점\n");
+            detailedFeedback.append("🎯 품질 평가: ").append(result.getCodeQuality().getScore()).append("점\n");
             detailedFeedback.append(qualityFeedback).append("\n\n");
         }
         
         String securityFeedback = devOpsResponse.path("security_feedback").asText();
         if (!securityFeedback.isEmpty()) {
-            detailedFeedback.append("🔒 보안 평가: ").append(security.getScore()).append("점\n");
+            detailedFeedback.append("🔒 보안 평가: ").append(result.getSecurity().getScore()).append("점\n");
             detailedFeedback.append(securityFeedback).append("\n\n");
         }
         
         String styleFeedback = devOpsResponse.path("style_feedback").asText();
         if (!styleFeedback.isEmpty()) {
-            detailedFeedback.append("🎨 스타일 평가: ").append(style.getScore()).append("점\n");
+            detailedFeedback.append("🎨 스타일 평가: ").append(result.getStyle().getScore()).append("점\n");
             detailedFeedback.append(styleFeedback).append("\n\n");
         }
-        
-        // 강점과 개선점 파싱
-        JsonNode strengths = devOpsResponse.path("strengths");
-        if (strengths.isArray() && strengths.size() > 0) {
-            detailedFeedback.append("=== 강점 ===\n");
-            for (JsonNode strength : strengths) {
-                detailedFeedback.append("✅ ").append(strength.asText()).append("\n");
+    }
+    
+    private void appendEvaluationSection(JsonNode devOpsResponse, StringBuilder detailedFeedback, String sectionName, String sectionTitle) {
+        String feedback = devOpsResponse.path(sectionName + "_feedback").asText();
+        if (!feedback.isEmpty()) {
+            detailedFeedback.append(sectionTitle).append(": ").append(devOpsResponse.path(sectionName + "_score").asInt()).append("점\n");
+            detailedFeedback.append(feedback).append("\n\n");
+        }
+    }
+    
+    private void appendStrengthsAndImprovements(JsonNode devOpsResponse, StringBuilder detailedFeedback) {
+        appendJsonArraySection(devOpsResponse, detailedFeedback, "strengths", "=== 강점 ===", "✅ ");
+        appendJsonArraySection(devOpsResponse, detailedFeedback, "improvements", "=== 개선점 ===", "🔧 ");
+        appendJsonArraySection(devOpsResponse, detailedFeedback, "next_steps", "=== 다음 단계 추천 ===", "🚀 ");
+    }
+    
+    private void appendJsonArraySection(JsonNode devOpsResponse, StringBuilder detailedFeedback, String fieldName, String sectionTitle, String bulletPoint) {
+        JsonNode arrayNode = devOpsResponse.path(fieldName);
+        if (arrayNode.isArray() && arrayNode.size() > 0) {
+            detailedFeedback.append(sectionTitle).append("\n");
+            for (JsonNode item : arrayNode) {
+                detailedFeedback.append(bulletPoint).append(item.asText()).append("\n");
             }
             detailedFeedback.append("\n");
         }
-        
-        JsonNode improvements = devOpsResponse.path("improvements");
-        if (improvements.isArray() && improvements.size() > 0) {
-            detailedFeedback.append("=== 개선점 ===\n");
-            for (JsonNode improvement : improvements) {
-                detailedFeedback.append("🔧 ").append(improvement.asText()).append("\n");
-            }
-            detailedFeedback.append("\n");
-        }
-        
-        JsonNode nextSteps = devOpsResponse.path("next_steps");
-        if (nextSteps.isArray() && nextSteps.size() > 0) {
-            detailedFeedback.append("=== 다음 단계 추천 ===\n");
-            for (JsonNode step : nextSteps) {
-                detailedFeedback.append("🚀 ").append(step.asText()).append("\n");
-            }
-        }
-        
-        result.setDetailedAnalysis(detailedFeedback.toString());
-        
+    }
+    
+    private void logFinalResults(EvaluationResultDTO result) {
         log.debug("===== DevOps 응답 파싱 완료 =====");
         log.debug("Final result - Overall Score: {}", result.getOverallScore());
         log.debug("Final result - Best Practice Score: {}", result.getBestPracticeScore());
@@ -1126,22 +1207,27 @@ public class GeminiEvaluationService {
         log.debug("Final result - Security Risk Level: {}", result.getSecurityRiskLevel());
         log.debug("Final result - Efficiency Grade: {}", result.getEfficiencyGrade());
         log.debug("===== DevOps 응답 파싱 완료 끝 =====");
-        
-        return result;
     }
     
     private EvaluationResultDTO parseOldDevOpsEvaluationResponse(JsonNode devOpsResponse) {
         EvaluationResultDTO result = new EvaluationResultDTO();
         
-        // 총점 계산 (15점 만점을 100점 만점으로 변환)
+        setBasicScoreAndFeedback(devOpsResponse, result);
+        parseLearningObjectives(devOpsResponse, result);
+        buildOldDevOpsDetailedAnalysis(devOpsResponse, result);
+        setOldDevOpsEvaluationScores(devOpsResponse, result);
+        
+        return result;
+    }
+    
+    private void setBasicScoreAndFeedback(JsonNode devOpsResponse, EvaluationResultDTO result) {
         int totalScore = devOpsResponse.path("total_score").asInt();
         int overallScore = (int) Math.round(totalScore * 100.0 / 15.0);
         result.setOverallScore(overallScore);
-        
-        // 피드백 설정
         result.setFeedback(devOpsResponse.path("feedback").asText());
-
-        // 학습 목표 평가 결과 파싱
+    }
+    
+    private void parseLearningObjectives(JsonNode devOpsResponse, EvaluationResultDTO result) {
         JsonNode learningObjectivesEval = devOpsResponse.path("learning_objectives_evaluation");
         if (learningObjectivesEval.isArray() && learningObjectivesEval.size() > 0) {
             List<EvaluationResultDTO.LearningObjectiveResult> objectives = new ArrayList<>();
@@ -1149,12 +1235,7 @@ public class GeminiEvaluationService {
             Map<String, String> objectiveFeedback = new HashMap<>();
             
             for (JsonNode objNode : learningObjectivesEval) {
-                EvaluationResultDTO.LearningObjectiveResult objResult = new EvaluationResultDTO.LearningObjectiveResult();
-                objResult.setObjective(objNode.path("objective").asText());
-                objResult.setAchievementRate(objNode.path("achievement_rate").asInt());
-                objResult.setEvidence(objNode.path("evidence").asText());
-                objResult.setFeedback(objNode.path("feedback").asText());
-                
+                EvaluationResultDTO.LearningObjectiveResult objResult = createLearningObjectiveResult(objNode);
                 objectives.add(objResult);
                 objectiveScores.put(objResult.getObjective(), objResult.getAchievementRate());
                 objectiveFeedback.put(objResult.getObjective(), objResult.getFeedback());
@@ -1165,14 +1246,33 @@ public class GeminiEvaluationService {
             result.setObjectiveFeedback(objectiveFeedback);
         }
         
-        // 전체 학습 목표 달성률
         int overallObjectiveAchievement = devOpsResponse.path("overall_objective_achievement").asInt(0);
         result.setOverallObjectiveAchievement(overallObjectiveAchievement);
-        
-        // 상세 분석 설정 (모든 확장 데이터를 결합)
+    }
+    
+    private EvaluationResultDTO.LearningObjectiveResult createLearningObjectiveResult(JsonNode objNode) {
+        EvaluationResultDTO.LearningObjectiveResult objResult = new EvaluationResultDTO.LearningObjectiveResult();
+        objResult.setObjective(objNode.path("objective").asText());
+        objResult.setAchievementRate(objNode.path("achievement_rate").asInt());
+        objResult.setEvidence(objNode.path("evidence").asText());
+        objResult.setFeedback(objNode.path("feedback").asText());
+        return objResult;
+    }
+    
+    private void buildOldDevOpsDetailedAnalysis(JsonNode devOpsResponse, EvaluationResultDTO result) {
         StringBuilder detailedAnalysis = new StringBuilder();
         
-        // === 학습 목표 달성도 분석 ===
+        appendLearningObjectivesAnalysis(result, detailedAnalysis);
+        appendCoreCommandsAnalysis(devOpsResponse, detailedAnalysis);
+        appendChecklistEvaluationAnalysis(devOpsResponse, detailedAnalysis);
+        appendResourceMetricsAnalysis(devOpsResponse, detailedAnalysis);
+        appendImprovementSections(devOpsResponse, detailedAnalysis);
+        appendEvidenceSection(devOpsResponse, detailedAnalysis);
+        
+        result.setDetailedAnalysis(detailedAnalysis.toString());
+    }
+    
+    private void appendLearningObjectivesAnalysis(EvaluationResultDTO result, StringBuilder detailedAnalysis) {
         if (result.getLearningObjectivesEvaluation() != null && !result.getLearningObjectivesEvaluation().isEmpty()) {
             detailedAnalysis.append("=== 학습 목표 달성도 분석 ===\n");
             detailedAnalysis.append(String.format("전체 달성률: %d%%\n\n", result.getOverallObjectiveAchievement()));
@@ -1185,62 +1285,66 @@ public class GeminiEvaluationService {
             }
             detailedAnalysis.append("\n");
         }
-        
-        // === 핵심 명령어 분석 섹션 ===
+    }
+    
+    private void appendCoreCommandsAnalysis(JsonNode devOpsResponse, StringBuilder detailedAnalysis) {
         JsonNode coreCommandsAnalysis = devOpsResponse.path("core_commands_analysis");
         if (!coreCommandsAnalysis.isMissingNode()) {
             detailedAnalysis.append("=== 핵심 명령어 사용 분석 ===\n");
             
-            // 실제 사용된 주요 명령어들
-            JsonNode keyCommands = coreCommandsAnalysis.path("key_commands_used");
-            if (keyCommands.isArray() && keyCommands.size() > 0) {
-                detailedAnalysis.append("🔧 사용된 핵심 명령어들:\n");
-                for (JsonNode commandNode : keyCommands) {
-                    String command = commandNode.path("command").asText();
-                    String explanation = commandNode.path("explanation").asText();
-                    String assessment = commandNode.path("assessment").asText();
-                    
-                    detailedAnalysis.append(String.format("  ▶ %s\n", command));
-                    detailedAnalysis.append(String.format("    설명: %s\n", explanation));
-                    detailedAnalysis.append(String.format("    평가: %s\n\n", assessment));
-                }
-            }
+            appendKeyCommandsUsed(coreCommandsAnalysis, detailedAnalysis);
+            appendToolProficiency(coreCommandsAnalysis, detailedAnalysis);
+            appendCommandEfficiencyAndSequence(coreCommandsAnalysis, detailedAnalysis);
             
-            // 도구별 숙련도
-            JsonNode kubectlUsage = coreCommandsAnalysis.path("kubectl_usage");
-            if (!kubectlUsage.isMissingNode()) {
-                detailedAnalysis.append(String.format("• kubectl 숙련도: %d/5 - %s\n", 
-                    kubectlUsage.path("score").asInt(), 
-                    kubectlUsage.path("details").asText()));
-            }
-            
-            JsonNode dockerUsage = coreCommandsAnalysis.path("docker_usage");
-            if (!dockerUsage.isMissingNode()) {
-                detailedAnalysis.append(String.format("• docker 숙련도: %d/5 - %s\n", 
-                    dockerUsage.path("score").asInt(), 
-                    dockerUsage.path("details").asText()));
-            }
-            
-            JsonNode otherTools = coreCommandsAnalysis.path("other_tools");
-            if (!otherTools.isMissingNode()) {
-                detailedAnalysis.append(String.format("• 기타 도구 사용: %d/5 - %s\n", 
-                    otherTools.path("score").asInt(), 
-                    otherTools.path("details").asText()));
-            }
-            
-            String commandEfficiency = coreCommandsAnalysis.path("command_efficiency").asText();
-            if (!commandEfficiency.isEmpty()) {
-                detailedAnalysis.append("• 명령어 효율성: ").append(commandEfficiency).append("\n");
-            }
-            
-            String commandSequence = coreCommandsAnalysis.path("command_sequence").asText();
-            if (!commandSequence.isEmpty()) {
-                detailedAnalysis.append("• 명령어 순서: ").append(commandSequence).append("\n");
-            }
             detailedAnalysis.append("\n");
         }
+    }
+    
+    private void appendKeyCommandsUsed(JsonNode coreCommandsAnalysis, StringBuilder detailedAnalysis) {
+        JsonNode keyCommands = coreCommandsAnalysis.path("key_commands_used");
+        if (keyCommands.isArray() && keyCommands.size() > 0) {
+            detailedAnalysis.append("🔧 사용된 핵심 명령어들:\n");
+            for (JsonNode commandNode : keyCommands) {
+                String command = commandNode.path("command").asText();
+                String explanation = commandNode.path("explanation").asText();
+                String assessment = commandNode.path("assessment").asText();
+                
+                detailedAnalysis.append(String.format("  ▶ %s\n", command));
+                detailedAnalysis.append(String.format("    설명: %s\n", explanation));
+                detailedAnalysis.append(String.format("    평가: %s\n\n", assessment));
+            }
+        }
+    }
+    
+    private void appendToolProficiency(JsonNode coreCommandsAnalysis, StringBuilder detailedAnalysis) {
+        appendToolScore(coreCommandsAnalysis, detailedAnalysis, "kubectl_usage", "kubectl 숙련도");
+        appendToolScore(coreCommandsAnalysis, detailedAnalysis, "docker_usage", "docker 숙련도");
+        appendToolScore(coreCommandsAnalysis, detailedAnalysis, "other_tools", "기타 도구 사용");
+    }
+    
+    private void appendToolScore(JsonNode coreCommandsAnalysis, StringBuilder detailedAnalysis, String toolName, String toolDisplayName) {
+        JsonNode toolUsage = coreCommandsAnalysis.path(toolName);
+        if (!toolUsage.isMissingNode()) {
+            detailedAnalysis.append(String.format("• %s: %d/5 - %s\n", 
+                toolDisplayName, 
+                toolUsage.path("score").asInt(), 
+                toolUsage.path("details").asText()));
+        }
+    }
+    
+    private void appendCommandEfficiencyAndSequence(JsonNode coreCommandsAnalysis, StringBuilder detailedAnalysis) {
+        String commandEfficiency = coreCommandsAnalysis.path("command_efficiency").asText();
+        if (!commandEfficiency.isEmpty()) {
+            detailedAnalysis.append("• 명령어 효율성: ").append(commandEfficiency).append("\n");
+        }
         
-        // === 체크리스트 평가 섹션 ===
+        String commandSequence = coreCommandsAnalysis.path("command_sequence").asText();
+        if (!commandSequence.isEmpty()) {
+            detailedAnalysis.append("• 명령어 순서: ").append(commandSequence).append("\n");
+        }
+    }
+    
+    private void appendChecklistEvaluationAnalysis(JsonNode devOpsResponse, StringBuilder detailedAnalysis) {
         JsonNode checklistEvaluation = devOpsResponse.path("checklist_evaluation");
         if (checklistEvaluation.isArray() && checklistEvaluation.size() > 0) {
             detailedAnalysis.append("=== 미션 목표 달성률 ===\n");
@@ -1253,46 +1357,62 @@ public class GeminiEvaluationService {
             }
             detailedAnalysis.append("\n");
         }
-        
-        // === 리소스 메트릭 섹션 ===
+    }
+    
+    private void appendResourceMetricsAnalysis(JsonNode devOpsResponse, StringBuilder detailedAnalysis) {
         JsonNode resourceMetrics = devOpsResponse.path("resource_metrics");
         if (!resourceMetrics.isMissingNode()) {
             detailedAnalysis.append("=== 시스템 리소스 사용 분석 ===\n");
             
-            String overallGrade = resourceMetrics.path("overall_resource_grade").asText();
-            if (!overallGrade.isEmpty()) {
-                detailedAnalysis.append("• 종합 리소스 효율성: ").append(overallGrade).append(" 등급\n");
-            }
+            appendResourceOverallGrade(resourceMetrics, detailedAnalysis);
+            appendResourceEfficiencyScores(resourceMetrics, detailedAnalysis);
+            appendResourceHighlights(resourceMetrics, detailedAnalysis);
+            appendOptimizationSuggestions(resourceMetrics, detailedAnalysis);
             
-            int cpuScore = resourceMetrics.path("cpu_efficiency_score").asInt();
-            int memoryScore = resourceMetrics.path("memory_efficiency_score").asInt();
-            int networkScore = resourceMetrics.path("network_efficiency_score").asInt();
-            int diskScore = resourceMetrics.path("disk_io_score").asInt();
-            
-            detailedAnalysis.append(String.format("• CPU 효율성: %d/5\n", cpuScore));
-            detailedAnalysis.append(String.format("• 메모리 효율성: %d/5\n", memoryScore));
-            detailedAnalysis.append(String.format("• 네트워크 효율성: %d/5\n", networkScore));
-            detailedAnalysis.append(String.format("• 디스크 I/O 효율성: %d/5\n", diskScore));
-            
-            JsonNode resourceHighlights = resourceMetrics.path("resource_highlights");
-            if (resourceHighlights.isArray() && resourceHighlights.size() > 0) {
-                detailedAnalysis.append("• 주요 특징:\n");
-                for (JsonNode highlight : resourceHighlights) {
-                    detailedAnalysis.append("  - ").append(highlight.asText()).append("\n");
-                }
-            }
-            
-            JsonNode optimizationSuggestions = resourceMetrics.path("optimization_suggestions");
-            if (optimizationSuggestions.isArray() && optimizationSuggestions.size() > 0) {
-                detailedAnalysis.append("• 최적화 제안:\n");
-                for (JsonNode suggestion : optimizationSuggestions) {
-                    detailedAnalysis.append("  - ").append(suggestion.asText()).append("\n");
-                }
-            }
             detailedAnalysis.append("\n");
         }
+    }
+    
+    private void appendResourceOverallGrade(JsonNode resourceMetrics, StringBuilder detailedAnalysis) {
+        String overallGrade = resourceMetrics.path("overall_resource_grade").asText();
+        if (!overallGrade.isEmpty()) {
+            detailedAnalysis.append("• 종합 리소스 효율성: ").append(overallGrade).append(" 등급\n");
+        }
+    }
+    
+    private void appendResourceEfficiencyScores(JsonNode resourceMetrics, StringBuilder detailedAnalysis) {
+        int cpuScore = resourceMetrics.path("cpu_efficiency_score").asInt();
+        int memoryScore = resourceMetrics.path("memory_efficiency_score").asInt();
+        int networkScore = resourceMetrics.path("network_efficiency_score").asInt();
+        int diskScore = resourceMetrics.path("disk_io_score").asInt();
         
-        // === 개선 제안 섹션 ===
+        detailedAnalysis.append(String.format("• CPU 효율성: %d/5\n", cpuScore));
+        detailedAnalysis.append(String.format("• 메모리 효율성: %d/5\n", memoryScore));
+        detailedAnalysis.append(String.format("• 네트워크 효율성: %d/5\n", networkScore));
+        detailedAnalysis.append(String.format("• 디스크 I/O 효율성: %d/5\n", diskScore));
+    }
+    
+    private void appendResourceHighlights(JsonNode resourceMetrics, StringBuilder detailedAnalysis) {
+        JsonNode resourceHighlights = resourceMetrics.path("resource_highlights");
+        if (resourceHighlights.isArray() && resourceHighlights.size() > 0) {
+            detailedAnalysis.append("• 주요 특징:\n");
+            for (JsonNode highlight : resourceHighlights) {
+                detailedAnalysis.append("  - ").append(highlight.asText()).append("\n");
+            }
+        }
+    }
+    
+    private void appendOptimizationSuggestions(JsonNode resourceMetrics, StringBuilder detailedAnalysis) {
+        JsonNode optimizationSuggestions = resourceMetrics.path("optimization_suggestions");
+        if (optimizationSuggestions.isArray() && optimizationSuggestions.size() > 0) {
+            detailedAnalysis.append("• 최적화 제안:\n");
+            for (JsonNode suggestion : optimizationSuggestions) {
+                detailedAnalysis.append("  - ").append(suggestion.asText()).append("\n");
+            }
+        }
+    }
+    
+    private void appendImprovementSections(JsonNode devOpsResponse, StringBuilder detailedAnalysis) {
         JsonNode improvementsLegacy = devOpsResponse.path("improvements");
         if (improvementsLegacy.isArray() && improvementsLegacy.size() > 0) {
             detailedAnalysis.append("=== 전반적 개선 제안 ===\n");
@@ -1302,7 +1422,6 @@ public class GeminiEvaluationService {
             detailedAnalysis.append("\n");
         }
         
-        // === 미충족 단계 섹션 ===
         JsonNode missedSteps = devOpsResponse.path("missed_steps");
         if (missedSteps.isArray() && missedSteps.size() > 0) {
             detailedAnalysis.append("=== 미충족 단계 ===\n");
@@ -1311,8 +1430,9 @@ public class GeminiEvaluationService {
             }
             detailedAnalysis.append("\n");
         }
-        
-        // === 근거 데이터 섹션 ===
+    }
+    
+    private void appendEvidenceSection(JsonNode devOpsResponse, StringBuilder detailedAnalysis) {
         JsonNode evidence = devOpsResponse.path("evidence");
         if (!evidence.isMissingNode()) {
             detailedAnalysis.append("=== 평가 근거 데이터 ===\n");
@@ -1338,10 +1458,20 @@ public class GeminiEvaluationService {
                 }
             }
         }
+    }
+    
+    private void setOldDevOpsEvaluationScores(JsonNode devOpsResponse, EvaluationResultDTO result) {
+        EvaluationResultDTO.CodeQualityScore codeQuality = createCodeQualityScore(devOpsResponse);
+        result.setCodeQuality(codeQuality);
         
-        result.setDetailedAnalysis(detailedAnalysis.toString());
+        EvaluationResultDTO.SecurityScore security = createSecurityScore(devOpsResponse);
+        result.setSecurity(security);
         
-        // 개별 점수들 (5점 만점을 100점 만점으로 변환)
+        EvaluationResultDTO.StyleScore style = createStyleScore(devOpsResponse);
+        result.setStyle(style);
+    }
+    
+    private EvaluationResultDTO.CodeQualityScore createCodeQualityScore(JsonNode devOpsResponse) {
         EvaluationResultDTO.CodeQualityScore codeQuality = new EvaluationResultDTO.CodeQualityScore();
         JsonNode correctness = devOpsResponse.path("correctness");
         if (!correctness.isMissingNode()) {
@@ -1350,8 +1480,10 @@ public class GeminiEvaluationService {
             codeQuality.setFeedback(correctness.path("reason").asText());
             codeQuality.setSuggestions("목표/체크리스트 충족도와 명령 시퀀스의 정확성을 기반으로 평가됨");
         }
-        result.setCodeQuality(codeQuality);
-        
+        return codeQuality;
+    }
+    
+    private EvaluationResultDTO.SecurityScore createSecurityScore(JsonNode devOpsResponse) {
         EvaluationResultDTO.SecurityScore security = new EvaluationResultDTO.SecurityScore();
         JsonNode efficiency = devOpsResponse.path("efficiency");
         if (!efficiency.isMissingNode()) {
@@ -1361,8 +1493,10 @@ public class GeminiEvaluationService {
             security.setVulnerabilities("불필요한 재시도나 과도한 리소스 사용 없음");
             security.setRecommendations("효율적인 DevOps 실행 관행 적용");
         }
-        result.setSecurity(security);
-        
+        return security;
+    }
+    
+    private EvaluationResultDTO.StyleScore createStyleScore(JsonNode devOpsResponse) {
         EvaluationResultDTO.StyleScore style = new EvaluationResultDTO.StyleScore();
         JsonNode quality = devOpsResponse.path("quality");
         if (!quality.isMissingNode()) {
@@ -1372,9 +1506,7 @@ public class GeminiEvaluationService {
             style.setStyleIssues("코드 구조와 가독성 관련");
             style.setImprovements("DevOps 모범 사례 준수 권장");
         }
-        result.setStyle(style);
-        
-        return result;
+        return style;
     }
     
     private String extractJsonFromResponse(String content) {

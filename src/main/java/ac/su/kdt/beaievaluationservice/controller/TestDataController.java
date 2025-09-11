@@ -1,5 +1,6 @@
 package ac.su.kdt.beaievaluationservice.controller;
 
+import ac.su.kdt.beaievaluationservice.constants.EvaluationConstants;
 import ac.su.kdt.beaievaluationservice.dto.response.ApiResponse;
 import ac.su.kdt.beaievaluationservice.entity.AIEvaluation;
 import ac.su.kdt.beaievaluationservice.repository.AIEvaluationRepository;
@@ -24,7 +25,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 // 테스트 데이터 및 시스템 상태 관리 API (개발/테스트 전용)
-@Tag(name = "시스템 관리", description = "시스템 상태 확인, 테스트 데이터 관리 등 개발/테스트 전용 API")
+@Tag(name = EvaluationConstants.SWAGGER_TAG_SYSTEM_MANAGEMENT, description = EvaluationConstants.SWAGGER_DESC_SYSTEM_MANAGEMENT)
 @Slf4j
 @RestController
 @RequestMapping("/api/test")
@@ -63,27 +64,27 @@ public class TestDataController {
     })
     @GetMapping("/health")
     public ResponseEntity<ApiResponse<Map<String, Object>>> healthCheck() {
-        log.info("Health check requested");
+        log.info(EvaluationConstants.LOG_HEALTH_CHECK_REQUESTED);
 
         try {
             Map<String, Object> healthInfo = new HashMap<>();
-            healthInfo.put("status", "UP");
-            healthInfo.put("timestamp", LocalDateTime.now());
-            healthInfo.put("version", "1.0.0");
+            healthInfo.put("status", EvaluationConstants.STATUS_UP);
+            healthInfo.put(EvaluationConstants.JSON_TIMESTAMP, LocalDateTime.now());
+            healthInfo.put("version", EvaluationConstants.VERSION_1_0_0);
             healthInfo.put("services", Map.of(
-                "database", checkDatabaseHealth(),
-                "temp-save-service", "UP",
-                "evaluation-service", "UP"
+                EvaluationConstants.SERVICE_DATABASE, checkDatabaseHealth(),
+                EvaluationConstants.SERVICE_TEMP_SAVE, EvaluationConstants.STATUS_UP,
+                EvaluationConstants.SERVICE_EVALUATION, EvaluationConstants.STATUS_UP
             ));
 
-            return ResponseEntity.ok(ApiResponse.success("시스템이 정상 동작 중입니다.", healthInfo));
+            return ResponseEntity.ok(ApiResponse.success(EvaluationConstants.SUCCESS_SYSTEM_HEALTHY, healthInfo));
 
         } catch (Exception e) {
-            log.error("Health check failed", e);
+            log.error(EvaluationConstants.LOG_HEALTH_CHECK_FAILED, e);
             Map<String, Object> errorInfo = Map.of(
-                "status", "DOWN",
-                "error", e.getMessage(),
-                "timestamp", LocalDateTime.now()
+                "status", EvaluationConstants.STATUS_DOWN,
+                EvaluationConstants.JSON_ERROR, e.getMessage(),
+                EvaluationConstants.JSON_TIMESTAMP, LocalDateTime.now()
             );
             return ResponseEntity.status(500)
                     .body(ApiResponse.failure("시스템 헬스 체크 실패", errorInfo));
@@ -563,7 +564,7 @@ public class TestDataController {
                         "Pod 상태 확인",
                         "외부 접근 테스트 완료"
                     );
-                    s3StorageUrl = "s3://devtrip-logs/missions/" + missionAttemptId + "/execution-data.zip";
+                    s3StorageUrl = EvaluationConstants.S3_LOGS_PATH + missionAttemptId + EvaluationConstants.EXECUTION_DATA_ZIP;
                     s3PreSignedUrl = "https://devtrip-logs.s3.amazonaws.com/missions/kubernetes-mission-123/execution-data.zip?X-Amz-Expires=300&token=test123";
                     statistics = createKubernetesStatistics();
                     break;
@@ -577,7 +578,7 @@ public class TestDataController {
                         "컨테이너 로그 확인",
                         "정리 작업 완료"
                     );
-                    s3StorageUrl = "s3://devtrip-logs/missions/" + missionAttemptId + "/execution-data.zip";
+                    s3StorageUrl = EvaluationConstants.S3_LOGS_PATH + missionAttemptId + EvaluationConstants.EXECUTION_DATA_ZIP;
                     s3PreSignedUrl = "https://devtrip-logs.s3.amazonaws.com/missions/docker-compose/execution-data.zip?X-Amz-Expires=300&token=test456";
                     statistics = createDockerComposeStatistics();
                     break;
@@ -585,7 +586,7 @@ public class TestDataController {
                     missionAttemptId = "general-test-" + System.currentTimeMillis();
                     missionObjective = "기본 DevOps 작업을 수행하고 결과를 확인하세요.";
                     checklist = java.util.List.of("작업 수행", "결과 확인", "정리 작업");
-                    s3StorageUrl = "s3://devtrip-logs/missions/" + missionAttemptId + "/execution-data.zip";
+                    s3StorageUrl = EvaluationConstants.S3_LOGS_PATH + missionAttemptId + EvaluationConstants.EXECUTION_DATA_ZIP;
                     s3PreSignedUrl = "https://devtrip-logs.s3.amazonaws.com/missions/default/execution-data.zip?X-Amz-Expires=300&token=test789";
                     statistics = createDefaultStatistics();
                     break;

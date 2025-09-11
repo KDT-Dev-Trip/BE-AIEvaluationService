@@ -2,6 +2,8 @@ plugins {
     id 'java'
     id 'org.springframework.boot' version '3.5.4'
     id 'io.spring.dependency-management' version '1.1.7'
+    id 'org.sonarqube' version '4.4.1.3373'
+    id 'jacoco'
 }
 
 group = 'ac.su.kdt'
@@ -21,8 +23,8 @@ configurations {
 
 repositories {
     mavenCentral()
-    maven { url = 'https://repo.spring.io/milestone' }
-    maven { url = 'https://repo.spring.io/snapshot' }
+    maven { url 'https://repo.spring.io/milestone' }
+    maven { url 'https://repo.spring.io/snapshot' }
 }
 
 dependencies {
@@ -37,7 +39,7 @@ dependencies {
     implementation 'me.paulschwarz:spring-dotenv:4.0.0'
     // Database Dependencies
     runtimeOnly 'com.h2database:h2'  // Keep for development/testing
-    runtimeOnly 'com.mysql:mysql-connector-j'  // MySQL production database
+    runtimeOnly 'mysql:mysql-connector-java:8.0.33'  // MySQL production database
     compileOnly 'org.projectlombok:lombok'
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
     annotationProcessor 'org.projectlombok:lombok'
@@ -48,13 +50,67 @@ dependencies {
     testImplementation 'org.springframework.kafka:spring-kafka-test'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'io.micrometer:micrometer-registry-prometheus'
-    // Logstash 및 Micrometer Tracing 의존성
-    implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
-    implementation 'io.micrometer:micrometer-tracing-bridge-brave'
-    implementation 'io.micrometer:micrometer-tracing'
-    implementation 'io.zipkin.reporter2:zipkin-reporter-brave'
+    // // Logstash 및 Micrometer Tracing 의존성
+    // implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
+    // implementation 'io.micrometer:micrometer-tracinzg-bridge-brave'
+    // implementation 'io.micrometer:micrometer-tracing'
+    // implementation 'io.zipkin.reporter2:zipkin-reporter-brave'
 }
 
 tasks.named('test') {
     useJUnitPlatform()
+    finalizedBy jacocoTestReport
+}
+
+// SonarQube 설정
+sonar {
+    properties {
+        property "sonar.projectKey", "devtrip-be-ai-evaluation-service"
+        property "sonar.projectName", "DevTrip BE AI Evaluation Service"
+        property "sonar.projectVersion", "1.0"
+        property "sonar.host.url", "http://localhost:9000"
+        // property "sonar.token", "squ_32d2569f9892e4225b28f1eb0323bf99c6928b7b"
+        property "sonar.sources", "src/main/java"
+        property "sonar.tests", "src/test/java"
+        property "sonar.java.source", "17"
+        property "sonar.java.target", "17"
+        property "sonar.exclusions", "**/*Config.java,**/Application.java"
+        property "sonar.test.inclusions", "**/*Test.java,**/*Tests.java"
+        property "sonar.qualitygate.wait", "false"
+        property "sonar.coverage.jacoco.xmlReportPaths", "build/reports/jacoco/test/jacocoTestReport.xml"
+    }
+}
+
+// JaCoCo 설정
+jacoco {
+    toolVersion = "0.8.8"
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+        html.required = true
+        csv.required = false
+    }
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it, exclude: [
+                '**/config/**',
+                '**/dto/**',
+                '**/entity/**',
+                '**/*Application.class'
+            ])
+        }))
+    }
+}
+
+jacocoTestCoverageVerification {
+    violationRules {
+        rule {
+            limit {
+                minimum = 0.60
+            }
+        }
+    }
 }

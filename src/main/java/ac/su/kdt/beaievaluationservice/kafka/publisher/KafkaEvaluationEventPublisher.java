@@ -10,6 +10,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 
 // Kafka를 통한 평가 이벤트 발행 구현체
 @Slf4j
@@ -29,17 +30,31 @@ public class KafkaEvaluationEventPublisher implements EvaluationEventPublisher {
             log.info("Publishing evaluation completed event for missionAttemptId: {}", 
                     event.getMissionAttemptId());
             
-            // 이벤트를 JSON으로 직렬화
-            String eventJson = objectMapper.writeValueAsString(event);
+            // User Service의 EvaluationEventListener가 기대하는 형식으로 이벤트 변환
+            Map<String, Object> eventData = Map.of(
+                "eventType", "evaluation.completed",
+                "missionAttemptId", event.getMissionAttemptId(),
+                "userId", event.getUserId() != null ? event.getUserId() : "",
+                "evaluationStatus", event.getEvaluationStatus() != null ? event.getEvaluationStatus() : "COMPLETED",
+                "overallScore", event.getOverallScore() != null ? event.getOverallScore() : 0,
+                "feedbackSummary", event.getFeedbackSummary() != null ? event.getFeedbackSummary() : "",
+                "missionTitle", event.getMissionTitle() != null ? event.getMissionTitle() : "미션",
+                "missionCategory", event.getMissionCategory() != null ? event.getMissionCategory() : "UNKNOWN",
+                "missionDifficulty", event.getMissionDifficulty() != null ? event.getMissionDifficulty() : "BEGINNER",
+                "completedAt", event.getCompletedAt() != null ? event.getCompletedAt().toString() : LocalDateTime.now().toString()
+            );
             
-            // Kafka 메시지 생성 (missionAttemptId를 파티션 키로 사용)
+            // 이벤트를 JSON으로 직렬화
+            String eventJson = objectMapper.writeValueAsString(eventData);
+            
+            // evaluation-events 토픽으로 발행 (User Service가 수신)
             ProducerRecord<String, String> record = new ProducerRecord<>(
-                evaluationCompletedTopic,
+                "evaluation-events",
                 event.getMissionAttemptId(), // 키: 같은 미션은 같은 파티션으로
                 eventJson
             );
             
-            // 메시지 헤더에 메타데이터 추가 (null 체크)
+            // 메시지 헤더에 메타데이터 추가
             record.headers().add("event_type", "evaluation.completed".getBytes());
             if (event.getUserId() != null) {
                 record.headers().add("user_id", event.getUserId().getBytes());
@@ -51,7 +66,7 @@ public class KafkaEvaluationEventPublisher implements EvaluationEventPublisher {
             // Kafka로 전송
             kafkaTemplate.send(record);
             
-            log.info("Successfully published evaluation completed event: missionAttemptId={}, status={}", 
+            log.info("Successfully published evaluation completed event to evaluation-events topic: missionAttemptId={}, status={}", 
                     event.getMissionAttemptId(), event.getEvaluationStatus());
                     
         } catch (Exception e) {

@@ -62,14 +62,27 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * IllegalArgumentException 처리
+     */
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiResponse<Object>> handleIllegalArgumentException(IllegalArgumentException e) {
+        log.warn("Invalid argument: {}", e.getMessage());
+        
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.failure("잘못된 파라미터: " + e.getMessage()));
+    }
+    
+    /**
      * 일반적인 런타임 예외 처리
      */
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<ApiResponse<Object>> handleRuntimeException(RuntimeException e) {
         log.error("Runtime exception occurred", e);
         
+        // 민감한 정보 노출 방지
+        String safeMessage = sanitizeErrorMessage(e.getMessage());
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.failure("서버 내부 오류가 발생했습니다: " + e.getMessage()));
+                .body(ApiResponse.failure("서버 내부 오류가 발생했습니다: " + safeMessage));
     }
 
     /**
@@ -81,5 +94,18 @@ public class GlobalExceptionHandler {
         
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiResponse.failure("예기치 않은 오류가 발생했습니다. 관리자에게 문의하세요."));
+    }
+    
+    /**
+     * 에러 메시지에서 민감한 정보 제거
+     */
+    private String sanitizeErrorMessage(String message) {
+        if (message == null) {
+            return "알 수 없는 오류";
+        }
+        
+        // 민감한 정보가 포함될 수 있는 패턴 제거
+        return message.replaceAll("(?i)(password|token|key|secret)=[^\\s]*", "[REDACTED]")
+                     .replaceAll("(?i)jdbc:[^\\s]*", "[DATABASE_URL_REDACTED]");
     }
 }

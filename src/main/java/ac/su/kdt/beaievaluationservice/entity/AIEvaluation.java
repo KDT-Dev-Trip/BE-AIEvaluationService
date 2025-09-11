@@ -1,5 +1,6 @@
 package ac.su.kdt.beaievaluationservice.entity;
 
+import ac.su.kdt.beaievaluationservice.constants.EvaluationConstants;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -30,16 +31,16 @@ public class AIEvaluation {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "id", columnDefinition = "BIGINT")
+    @Column(name = EvaluationConstants.COLUMN_ID, columnDefinition = "BIGINT")
     private Long id;
 
-    @Column(name = "mission_attempt_id", length = 36, nullable = false, unique = true)
+    @Column(name = EvaluationConstants.COLUMN_MISSION_ATTEMPT_ID, length = 36, nullable = false, unique = true)
     private String missionAttemptId;
 
-    @Column(name = "user_id", nullable = false)
+    @Column(name = EvaluationConstants.COLUMN_USER_ID, nullable = false)
     private Long userId;
 
-    @Column(name = "mission_id", nullable = false)
+    @Column(name = EvaluationConstants.COLUMN_MISSION_ID, nullable = false)
     private String missionId;
 
     @Enumerated(EnumType.STRING)
@@ -82,11 +83,11 @@ public class AIEvaluation {
     private Long processingTimeMs;
 
     @CreatedDate
-    @Column(name = "created_at", updatable = false)
+    @Column(name = EvaluationConstants.COLUMN_CREATED_AT, updatable = false)
     private LocalDateTime createdAt;
 
     @LastModifiedDate
-    @Column(name = "updated_at")
+    @Column(name = EvaluationConstants.COLUMN_UPDATED_AT)
     private LocalDateTime updatedAt;
 
     public enum EvaluationStatus {

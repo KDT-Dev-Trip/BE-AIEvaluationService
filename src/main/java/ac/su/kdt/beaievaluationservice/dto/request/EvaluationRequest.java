@@ -49,12 +49,6 @@ public class EvaluationRequest {
     // 실행 통계 (명령어 성공/실패 횟수, 리소스 사용량 등)
     private MissionCompletedEvent.SimpleStatistics statistics;
     
-    // === 기존 필드들 (하위 호환성) ===
-    
-    // Prometheus 메트릭 수집을 위한 시간 범위 (선택적, 더 이상 사용되지 않음)
-    @Deprecated
-    private LocalDateTime startAt;
-    
-    @Deprecated
-    private LocalDateTime endAt;
+    // === 기존 필드들 제거됨 ===
+    // Prometheus 메트릭 수집 필드들은 S3 통합으로 대체되어 제거됨
 }

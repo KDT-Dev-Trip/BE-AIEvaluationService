@@ -1,5 +1,6 @@
 package ac.su.kdt.beaievaluationservice.dto;
 
+import ac.su.kdt.beaievaluationservice.constants.EvaluationConstants;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
@@ -20,31 +21,31 @@ import java.util.Map;
 @AllArgsConstructor
 public class EvaluationFailedEventDTO {
 
-    @JsonProperty("eventType")
+    @JsonProperty(EvaluationConstants.JSON_EVENT_TYPE)
     @Builder.Default
     private String eventType = "evaluation.failed";
 
     @JsonProperty("eventId")
     private String eventId;
 
-    @JsonProperty("timestamp")
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS")
+    @JsonProperty(EvaluationConstants.JSON_TIMESTAMP)
+    @JsonFormat(pattern = EvaluationConstants.DATETIME_FORMAT_WITH_MS)
     private LocalDateTime timestamp;
 
     // 평가 기본 정보
-    @JsonProperty("evaluationId")
+    @JsonProperty(EvaluationConstants.JSON_EVALUATION_ID)
     private String evaluationId;
 
-    @JsonProperty("missionId")
+    @JsonProperty(EvaluationConstants.JSON_MISSION_ID)
     private String missionId;
 
-    @JsonProperty("missionTitle")
+    @JsonProperty(EvaluationConstants.JSON_MISSION_TITLE)
     private String missionTitle;
 
     @JsonProperty("attemptId")
     private String attemptId;
 
-    @JsonProperty("userId")
+    @JsonProperty(EvaluationConstants.JSON_USER_ID)
     private Long userId;
 
     @JsonProperty("userEmail")
@@ -70,7 +71,7 @@ public class EvaluationFailedEventDTO {
     private String stackTrace;
 
     // 재시도 정보
-    @JsonProperty("retryAttempt")
+    @JsonProperty(EvaluationConstants.JSON_RETRY_ATTEMPT)
     private Integer retryAttempt;
 
     @JsonProperty("maxRetries")
@@ -80,7 +81,7 @@ public class EvaluationFailedEventDTO {
     private Boolean canRetry;
 
     @JsonProperty("nextRetryAt")
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS")
+    @JsonFormat(pattern = EvaluationConstants.DATETIME_FORMAT_WITH_MS)
     private LocalDateTime nextRetryAt;
 
     // 평가 진행 상황
@@ -97,7 +98,7 @@ public class EvaluationFailedEventDTO {
     private Map<String, Object> partialResults;
 
     // 리소스 정보
-    @JsonProperty("evaluationEngine")
+    @JsonProperty(EvaluationConstants.JSON_EVALUATION_ENGINE)
     private String evaluationEngine;
 
     @JsonProperty("resourcesUsed")
@@ -139,7 +140,7 @@ public class EvaluationFailedEventDTO {
                 .maxRetries(3)
                 .canRetry(canRetry)
                 .nextRetryAt(canRetry ? now.plusMinutes(5) : null)
-                .evaluationEngine("GEMINI")
+                .evaluationEngine(EvaluationConstants.AI_MODEL_GEMINI)
                 .build();
     }
 
@@ -154,7 +155,7 @@ public class EvaluationFailedEventDTO {
         // 시스템 오류는 재시도 가능
         if (failureReason != null) {
             String reason = failureReason.toUpperCase();
-            return reason.contains("TIMEOUT") || 
+            return reason.contains(EvaluationConstants.TIMEOUT_STATUS) || 
                    reason.contains("API_ERROR") || 
                    reason.contains("NETWORK") ||
                    reason.contains("RATE_LIMIT");
@@ -170,7 +171,7 @@ public class EvaluationFailedEventDTO {
         if (failureReason == null) return "UNKNOWN";
         
         String reason = failureReason.toUpperCase();
-        if (reason.contains("TIMEOUT")) return "TIMEOUT";
+        if (reason.contains(EvaluationConstants.TIMEOUT_STATUS)) return EvaluationConstants.TIMEOUT_STATUS;
         if (reason.contains("API")) return "API_ERROR";
         if (reason.contains("DATA")) return "DATA_INVALID";
         if (reason.contains("RESOURCE") || reason.contains("LIMIT")) return "RESOURCE_LIMIT";

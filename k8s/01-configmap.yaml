@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-evaluation-service-config
+  namespace: devtrip
+data:
+  DB_HOST: "mysql-service.infrastructure.svc.cluster.local"
+  DB_PORT: "3306"
+  DB_NAME: "devtrip"
+  DB_USERNAME: "root"
+  REDIS_HOST: "redis-service.infrastructure.svc.cluster.local"
+  REDIS_PORT: "6379"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka-service.infrastructure.svc.cluster.local:9092"
+  SPRING_PROFILES_ACTIVE: "kubernetes"

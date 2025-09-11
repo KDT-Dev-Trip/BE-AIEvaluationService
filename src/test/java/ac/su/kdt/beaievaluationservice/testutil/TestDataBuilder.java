@@ -1,5 +1,6 @@
 package ac.su.kdt.beaievaluationservice.testutil;
 
+import ac.su.kdt.beaievaluationservice.constants.EvaluationConstants;
 import ac.su.kdt.beaievaluationservice.entity.AIEvaluation;
 import ac.su.kdt.beaievaluationservice.entity.EvaluationSummary;
 import ac.su.kdt.beaievaluationservice.entity.EvaluationHistory;
@@ -13,13 +14,13 @@ import java.time.LocalDateTime;
 public class TestDataBuilder {
 
     public static class MissionCompletedEventBuilder {
-        private String eventType = "MISSION_COMPLETED";
-        private String userId = "test-user-123";
-        private String missionId = "test-mission-456";
-        private String missionAttemptId = "test-attempt-789";
-        private String missionType = "Docker Container";
-        private String code = "FROM ubuntu:20.04\nRUN apt-get update\nEXPOSE 8080";
-        private String missionTitle = "Docker 컨테이너 생성 실습";
+        private String eventType = EvaluationConstants.EVENT_TYPE_MISSION_COMPLETED;
+        private String userId = EvaluationConstants.TEST_USER_ID;
+        private String missionId = EvaluationConstants.TEST_MISSION_ID;
+        private String missionAttemptId = EvaluationConstants.TEST_ATTEMPT_ID;
+        private String missionType = EvaluationConstants.MISSION_TYPE_DOCKER;
+        private String code = EvaluationConstants.TEST_CODE_DOCKER;
+        private String missionTitle = EvaluationConstants.TEST_MISSION_TITLE;
         private LocalDateTime completedAt = LocalDateTime.now();
 
         public MissionCompletedEventBuilder eventType(String eventType) {
@@ -78,10 +79,10 @@ public class TestDataBuilder {
 
     public static class AIEvaluationBuilder {
         private Long id = 1L;
-        private String missionAttemptId = "test-attempt-789";
+        private String missionAttemptId = EvaluationConstants.TEST_ATTEMPT_ID;
         private AIEvaluation.EvaluationStatus status = AIEvaluation.EvaluationStatus.PENDING;
         private String evaluationResult = null;
-        private String aiModelVersion = "gemini-1.5-pro";
+        private String aiModelVersion = EvaluationConstants.AI_MODEL_VERSION_GEMINI_15_PRO;
         private String errorMessage = null;
         private LocalDateTime createdAt = LocalDateTime.now();
         private LocalDateTime updatedAt = LocalDateTime.now();
@@ -142,8 +143,8 @@ public class TestDataBuilder {
 
     public static class EvaluationResultDTOBuilder {
         private Integer overallScore = 85;
-        private String feedback = "Overall good code quality with room for improvement";
-        private String detailedAnalysis = "Detailed analysis of the submitted code...";
+        private String feedback = EvaluationConstants.TEST_FEEDBACK_GOOD;
+        private String detailedAnalysis = EvaluationConstants.TEST_ANALYSIS_DETAILED;
         private EvaluationResultDTO.CodeQualityScore codeQuality = createDefaultCodeQuality();
         private EvaluationResultDTO.SecurityScore security = createDefaultSecurity();
         private EvaluationResultDTO.StyleScore style = createDefaultStyle();
@@ -219,7 +220,7 @@ public class TestDataBuilder {
         private Long id = 1L;
         private Long userId = 123L;
         private String missionId = "456";
-        private String missionAttemptId = "test-attempt-789";
+        private String missionAttemptId = EvaluationConstants.TEST_ATTEMPT_ID;
         private String missionTitle = "Docker 컨테이너 생성 실습";
         private String missionType = "Docker Container";
         private Integer overallScore = 85;

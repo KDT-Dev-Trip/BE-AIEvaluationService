@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-evaluation-service
+  namespace: devtrip
+spec:
+  selector:
+    app: ai-evaluation-service
+  ports:
+  - name: http
+    port: 8084
+    targetPort: 8084

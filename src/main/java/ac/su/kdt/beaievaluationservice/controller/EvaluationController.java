@@ -1,5 +1,6 @@
 package ac.su.kdt.beaievaluationservice.controller;
 
+import ac.su.kdt.beaievaluationservice.constants.EvaluationConstants;
 import ac.su.kdt.beaievaluationservice.dto.request.EvaluationRequest;
 import ac.su.kdt.beaievaluationservice.dto.response.ApiResponse;
 import ac.su.kdt.beaievaluationservice.dto.response.*;
@@ -19,6 +20,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,12 +31,26 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 // AI 평가 REST API 컨트롤러 (테스트/개발용)
-@Tag(name = "AI 평가", description = "AI를 통한 코드 평가 관련 API")
+@Tag(name = EvaluationConstants.SWAGGER_TAG_AI_EVALUATION, description = EvaluationConstants.SWAGGER_DESC_AI_EVALUATION)
 @Slf4j
 @RestController
 @RequestMapping("/api/evaluation")
 @RequiredArgsConstructor
 public class EvaluationController {
+    
+    // 상수 정의
+    private static final String DEFAULT_AI_MODEL_VERSION = EvaluationConstants.AI_MODEL_VERSION_GEMINI_20_FLASH;
+    private static final String STATUS_PROCESSING = EvaluationConstants.STATUS_PROCESSING;
+    private static final String STATUS_COMPLETED = EvaluationConstants.STATUS_COMPLETED;
+    private static final int DEFAULT_PROCESSING_TIME_SECONDS = EvaluationConstants.PROCESSING_TIME_DEFAULT_SECONDS;
+    private static final int MAX_PROCESSING_TIME_SECONDS = EvaluationConstants.PROCESSING_TIME_MAX_SECONDS;
+    
+    // HTTP 상태 코드 상수
+    private static final int HTTP_CONFLICT = 409;
+    private static final int HTTP_UNPROCESSABLE_ENTITY = 422;
+    private static final int HTTP_NOT_FOUND = 404;
+    private static final int HTTP_BAD_REQUEST = 400;
+    private static final int HTTP_INTERNAL_SERVER_ERROR = 500;
 
     private final EvaluationService evaluationService;
     private final AIEvaluationRepository aiEvaluationRepository;
@@ -67,7 +83,7 @@ public class EvaluationController {
         ),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "500", 
-            description = "서버 내부 오류",
+            description = EvaluationConstants.ERROR_KOREAN_SERVER_INTERNAL,
             content = @Content(schema = @Schema(implementation = ApiResponse.class))
         )
     })
@@ -79,8 +95,8 @@ public class EvaluationController {
         try {
             // 중복 평가 체크
             if (aiEvaluationRepository.existsByMissionAttemptId(request.getMissionAttemptId())) {
-                return ResponseEntity.status(409)
-                        .body(ApiResponse.failure("이미 평가가 진행 중이거나 완료된 미션입니다."));
+                return createErrorResponse(HttpStatus.CONFLICT, 
+                        "이미 평가가 진행 중이거나 완료된 미션입니다.");
             }
 
             // Request를 Event로 변환
@@ -90,21 +106,20 @@ public class EvaluationController {
             evaluationService.processEvaluation(event);
             
             // 즉시 응답 (평가는 비동기로 진행)
-            EvaluationResponse response = EvaluationResponse.builder()
-                    .missionAttemptId(request.getMissionAttemptId())
-                    .userId(request.getUserId())
-                    .status("PROCESSING")
-                    .aiModelVersion("gemini-2.0-flash-exp")
-                    .createdAt(LocalDateTime.now())
-                    .build();
+            EvaluationResponse response = buildProcessingResponse(request);
             
+            String message = String.format("AI 평가가 시작되었습니다. 완료까지 약 %d-%d초 소요됩니다.", 
+                    DEFAULT_PROCESSING_TIME_SECONDS, MAX_PROCESSING_TIME_SECONDS);
             return ResponseEntity.accepted()
-                    .body(ApiResponse.success("AI 평가가 시작되었습니다. 완료까지 약 10-30초 소요됩니다.", response));
+                    .body(ApiResponse.success(message, response));
 
+        } catch (IllegalArgumentException e) {
+            log.error("Validation error for missionAttemptId: {} - {}", request.getMissionAttemptId(), e.getMessage());
+            return createErrorResponse(HttpStatus.BAD_REQUEST, EvaluationConstants.ERROR_VALIDATION + ": " + e.getMessage());
         } catch (Exception e) {
             log.error("Failed to start evaluation for missionAttemptId: {}", request.getMissionAttemptId(), e);
-            return ResponseEntity.status(500)
-                    .body(ApiResponse.failure("AI 평가 시작 중 오류가 발생했습니다: " + e.getMessage()));
+            return createErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, 
+                    "AI 평가 시작 중 오류가 발생했습니다: " + e.getMessage());
         }
     }
 
@@ -129,7 +144,7 @@ public class EvaluationController {
         ),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "500", 
-            description = "서버 내부 오류",
+            description = EvaluationConstants.ERROR_KOREAN_SERVER_INTERNAL,
             content = @Content(schema = @Schema(implementation = ApiResponse.class))
         )
     })
@@ -143,8 +158,8 @@ public class EvaluationController {
             Optional<AIEvaluation> evaluation = aiEvaluationRepository.findByMissionAttemptId(missionAttemptId);
             
             if (evaluation.isEmpty()) {
-                return ResponseEntity.status(404)
-                        .body(ApiResponse.failure("해당 미션 시도의 평가를 찾을 수 없습니다."));
+                return createErrorResponse(HttpStatus.NOT_FOUND, 
+                        EvaluationConstants.ERROR_NOT_FOUND);
             }
 
             AIEvaluation aiEvaluation = evaluation.get();
@@ -154,8 +169,8 @@ public class EvaluationController {
 
         } catch (Exception e) {
             log.error("Failed to get evaluation result for missionAttemptId: {}", missionAttemptId, e);
-            return ResponseEntity.status(500)
-                    .body(ApiResponse.failure("평가 결과 조회 중 오류가 발생했습니다: " + e.getMessage()));
+            return createErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, 
+                    "평가 결과 조회 중 오류가 발생했습니다: " + e.getMessage());
         }
     }
 
@@ -174,7 +189,7 @@ public class EvaluationController {
         ),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "500", 
-            description = "서버 내부 오류",
+            description = EvaluationConstants.ERROR_KOREAN_SERVER_INTERNAL,
             content = @Content(schema = @Schema(implementation = ApiResponse.class))
         )
     })
@@ -185,19 +200,22 @@ public class EvaluationController {
         log.info("Get evaluation history for userId: {}", userId);
 
         try {
-            List<EvaluationSummary> summaries = evaluationSummaryRepository.findByUserIdOrderByCreatedAtDesc(Long.parseLong(userId));
+            Long userIdLong = validateAndParseUserId(userId);
+            List<EvaluationSummary> summaries = evaluationSummaryRepository.findByUserIdOrderByCreatedAtDesc(userIdLong);
             
             List<EvaluationResponse> responses = summaries.stream()
                     .map(this::convertSummaryToResponse)
                     .collect(Collectors.toList());
             
-            return ResponseEntity.ok(ApiResponse.success(
-                    String.format("평가 이력 %d건을 조회했습니다.", responses.size()), 
-                    responses));
+            String message = String.format("평가 이력 %d건을 조회했습니다.", responses.size());
+            return ResponseEntity.ok(ApiResponse.success(message, responses));
 
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.failure("잘못된 요청입니다: " + e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to get evaluation history for userId: {}", userId, e);
-            return ResponseEntity.status(500)
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.failure("평가 이력 조회 중 오류가 발생했습니다: " + e.getMessage()));
         }
     }
@@ -223,7 +241,7 @@ public class EvaluationController {
         ),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "500", 
-            description = "서버 내부 오류",
+            description = EvaluationConstants.ERROR_KOREAN_SERVER_INTERNAL,
             content = @Content(schema = @Schema(implementation = ApiResponse.class))
         )
     })
@@ -397,7 +415,7 @@ public class EvaluationController {
         ),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "500", 
-            description = "서버 내부 오류",
+            description = EvaluationConstants.ERROR_KOREAN_SERVER_INTERNAL,
             content = @Content(schema = @Schema(implementation = ApiResponse.class))
         )
     })
@@ -507,6 +525,42 @@ public class EvaluationController {
     }
 
     // Helper methods
+    
+    /**
+     * 에러 응답 생성 헬퍼 메서드
+     */
+    private ResponseEntity<ApiResponse<EvaluationResponse>> createErrorResponse(HttpStatus status, String message) {
+        return ResponseEntity.status(status)
+                .body(ApiResponse.failure(message));
+    }
+    
+    /**
+     * 처리 중 응답 생성 헬퍼 메서드
+     */
+    private EvaluationResponse buildProcessingResponse(EvaluationRequest request) {
+        return EvaluationResponse.builder()
+                .missionAttemptId(request.getMissionAttemptId())
+                .userId(request.getUserId())
+                .status(STATUS_PROCESSING)
+                .aiModelVersion(DEFAULT_AI_MODEL_VERSION)
+                .createdAt(LocalDateTime.now())
+                .build();
+    }
+    
+    /**
+     * 사용자 ID 검증 헬퍼 메서드
+     */
+    private Long validateAndParseUserId(String userId) {
+        if (userId == null || userId.trim().isEmpty()) {
+            throw new IllegalArgumentException("사용자 ID는 필수입니다.");
+        }
+        try {
+            return Long.parseLong(userId);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("잘못된 사용자 ID 형식입니다: " + userId);
+        }
+    }
+
     private MissionCompletedEvent convertToEvent(EvaluationRequest request) {
         log.info("=== convertToEvent DEBUG ===");
         log.info("Request userId: {}", request.getUserId());
@@ -514,7 +568,7 @@ public class EvaluationController {
         log.info("Request missionAttemptId: {}", request.getMissionAttemptId());
         
         MissionCompletedEvent event = new MissionCompletedEvent();
-        event.setEventType("MISSION_COMPLETED");
+        event.setEventType(EvaluationConstants.EVENT_TYPE_MISSION_COMPLETED);
         event.setUserId(request.getUserId());
         event.setMissionId(request.getMissionId());
         event.setMissionAttemptId(request.getMissionAttemptId());
@@ -610,17 +664,17 @@ public class EvaluationController {
                     // 세부 점수들 파싱
                     JsonNode codeQuality = resultJson.path("codeQuality");
                     if (!codeQuality.isMissingNode()) {
-                        builder.codeQualityScore(codeQuality.path("score").asInt());
+                        builder.codeQualityScore(codeQuality.path(EvaluationConstants.JSON_SCORE).asInt());
                     }
                     
                     JsonNode security = resultJson.path("security");
                     if (!security.isMissingNode()) {
-                        builder.securityScore(security.path("score").asInt());
+                        builder.securityScore(security.path(EvaluationConstants.JSON_SCORE).asInt());
                     }
                     
                     JsonNode style = resultJson.path("style");
                     if (!style.isMissingNode()) {
-                        builder.styleScore(style.path("score").asInt());
+                        builder.styleScore(style.path(EvaluationConstants.JSON_SCORE).asInt());
                     }
                 }
             } catch (Exception e) {

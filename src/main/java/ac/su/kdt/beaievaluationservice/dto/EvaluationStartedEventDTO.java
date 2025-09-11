@@ -1,5 +1,6 @@
 package ac.su.kdt.beaievaluationservice.dto;
 
+import ac.su.kdt.beaievaluationservice.constants.EvaluationConstants;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
@@ -20,31 +21,31 @@ import java.util.Map;
 @AllArgsConstructor
 public class EvaluationStartedEventDTO {
 
-    @JsonProperty("eventType")
+    @JsonProperty(EvaluationConstants.JSON_EVENT_TYPE)
     @Builder.Default
     private String eventType = "evaluation.started";
 
     @JsonProperty("eventId")
     private String eventId;
 
-    @JsonProperty("timestamp")
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS")
+    @JsonProperty(EvaluationConstants.JSON_TIMESTAMP)
+    @JsonFormat(pattern = EvaluationConstants.DATETIME_FORMAT_WITH_MS)
     private LocalDateTime timestamp;
 
     // 평가 대상 정보
-    @JsonProperty("evaluationId")
+    @JsonProperty(EvaluationConstants.JSON_EVALUATION_ID)
     private String evaluationId;
 
-    @JsonProperty("missionId")
+    @JsonProperty(EvaluationConstants.JSON_MISSION_ID)
     private String missionId;
 
-    @JsonProperty("missionTitle")
+    @JsonProperty(EvaluationConstants.JSON_MISSION_TITLE)
     private String missionTitle;
 
     @JsonProperty("attemptId")
     private String attemptId;
 
-    @JsonProperty("userId")
+    @JsonProperty(EvaluationConstants.JSON_USER_ID)
     private Long userId;
 
     @JsonProperty("userEmail")
@@ -73,7 +74,7 @@ public class EvaluationStartedEventDTO {
     @JsonProperty("s3BucketPath")
     private String s3BucketPath;
 
-    @JsonProperty("evaluationEngine")
+    @JsonProperty(EvaluationConstants.JSON_EVALUATION_ENGINE)
     private String evaluationEngine; // GEMINI, OPENAI, CLAUDE
 
     // 우선순위 및 메타데이터
@@ -83,7 +84,7 @@ public class EvaluationStartedEventDTO {
     @JsonProperty("expectedDurationMinutes")
     private Integer expectedDurationMinutes;
 
-    @JsonProperty("retryAttempt")
+    @JsonProperty(EvaluationConstants.JSON_RETRY_ATTEMPT)
     private Integer retryAttempt;
 
     @JsonProperty("metadata")
@@ -111,7 +112,7 @@ public class EvaluationStartedEventDTO {
                 .s3BucketPath(s3BucketPath)
                 .maxScore(100)
                 .timeoutMinutes(30)
-                .evaluationEngine("GEMINI")
+                .evaluationEngine(EvaluationConstants.AI_MODEL_GEMINI)
                 .priority("NORMAL")
                 .expectedDurationMinutes(10)
                 .retryAttempt(0)

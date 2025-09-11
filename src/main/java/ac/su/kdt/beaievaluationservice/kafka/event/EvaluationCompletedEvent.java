@@ -30,6 +30,12 @@ public class EvaluationCompletedEvent {
     @JsonProperty("mission_type")
     private String missionType;
     
+    @JsonProperty("mission_category")
+    private String missionCategory;
+    
+    @JsonProperty("mission_difficulty")
+    private String missionDifficulty;
+    
     // 평가 결과 정보
     @JsonProperty("evaluation_id")
     private Long evaluationId;
@@ -37,6 +43,17 @@ public class EvaluationCompletedEvent {
     @JsonProperty("overall_score")
     private Integer overallScore;
     
+    // DevOps 채점관 점수들 (프론트와 호환)
+    @JsonProperty("correctness_score")
+    private Integer correctnessScore;
+    
+    @JsonProperty("efficiency_score")
+    private Integer efficiencyScore;
+    
+    @JsonProperty("quality_score")
+    private Integer qualityScore;
+    
+    // 기존 호환성 점수들
     @JsonProperty("code_quality_score")
     private Integer codeQualityScore;
     
@@ -65,13 +82,27 @@ public class EvaluationCompletedEvent {
     @JsonProperty("processing_time_ms")
     private Long processingTimeMs; // 평가 소요 시간
     
-    // 간단한 통계 정보 (새로운 평가 방식)
-    @JsonProperty("command_success_count")
-    private Integer commandSuccessCount;
+    // 미션 수행 통계 (프론트와 호환)
+    @JsonProperty("commands_executed")
+    private Integer commandsExecuted;
     
-    @JsonProperty("command_failure_count")
-    private Integer commandFailureCount;
+    @JsonProperty("significant_commands")
+    private Integer significantCommands;
     
+    @JsonProperty("error_commands")
+    private Integer errorCommands;
+    
+    @JsonProperty("total_execution_time_ms")
+    private Long totalExecutionTimeMs;
+    
+    // 성과 지표 (프론트와 호환)
+    @JsonProperty("stamps_earned")
+    private Integer stampsEarned;
+    
+    @JsonProperty("points_awarded")
+    private Integer pointsAwarded;
+    
+    // 시스템 리소스 통계 (기존 유지)
     @JsonProperty("average_cpu_usage")
     private Double averageCpuUsage;
     
@@ -83,7 +114,4 @@ public class EvaluationCompletedEvent {
     
     @JsonProperty("max_memory_usage")
     private Double maxMemoryUsage;
-    
-    @JsonProperty("total_execution_time")
-    private Long totalExecutionTime;
 }

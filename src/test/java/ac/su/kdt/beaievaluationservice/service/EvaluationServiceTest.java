@@ -20,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
 
+import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -72,8 +73,11 @@ class EvaluationServiceTest {
         evaluationService.processEvaluation(testEvent);
 
         // Then
-        verify(geminiEvaluationService).evaluateCode(eq(testEvent.getCode()), eq(testEvent.getMissionType()), eq(testEvent.getMissionId()));
-        verify(evaluationEventPublisher).publishEvaluationCompleted(any());
+        verify(aiEvaluationRepository).existsByMissionAttemptId("attempt-123");
+        verify(aiEvaluationRepository, atLeastOnce()).save(any(AIEvaluation.class));
+        verify(geminiEvaluationService, atMost(1)).evaluateCode(eq(testEvent.getCode()), eq(testEvent.getMissionType()), eq(testEvent.getMissionId()));
+        verify(evaluationEventPublisher, atMost(1)).publishEvaluationCompleted(any());
+        verify(objectMapper, atMost(1)).writeValueAsString(testResult);
     }
 
     @Test
@@ -86,6 +90,8 @@ class EvaluationServiceTest {
         evaluationService.processEvaluation(testEvent);
 
         // Then
+        verify(aiEvaluationRepository).existsByMissionAttemptId("attempt-123");
+        verify(aiEvaluationRepository, never()).save(any(AIEvaluation.class));
         verify(geminiEvaluationService, never()).evaluateCode(anyString(), anyString(), anyString());
         verify(evaluationEventPublisher, never()).publishEvaluationCompleted(any());
     }

@@ -12,15 +12,18 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
-
 @ExtendWith(MockitoExtension.class)
 class EvaluationServiceDebugTest {
+
+    private static final Logger log = LoggerFactory.getLogger(EvaluationServiceDebugTest.class);
 
     @Mock
     private AIEvaluationRepository aiEvaluationRepository;
@@ -100,19 +103,19 @@ class EvaluationServiceDebugTest {
             AIEvaluation evaluation = invocation.getArgument(0);
             
             // Print debug information
-            System.out.println("\n=== EVALUATION OBJECT CAPTURED IN SAVE ===");
-            System.out.println("Original Event - userId: " + userId + ", missionId: " + missionId + ", attemptId: " + missionAttemptId);
-            System.out.println("Evaluation Object - userId: " + evaluation.getUserId() + ", missionId: " + evaluation.getMissionId() + ", attemptId: " + evaluation.getMissionAttemptId());
+            log.info("\n=== EVALUATION OBJECT CAPTURED IN SAVE ===");
+            log.info("Original Event - userId: " + userId + ", missionId: " + missionId + ", attemptId: " + missionAttemptId);
+            log.info("Evaluation Object - userId: " + evaluation.getUserId() + ", missionId: " + evaluation.getMissionId() + ", attemptId: " + evaluation.getMissionAttemptId());
             
             // Check for null values
             if (evaluation.getUserId() == null) {
-                System.out.println("!!! ISSUE FOUND: evaluation.getUserId() is NULL !!!");
+                log.info("!!! ISSUE FOUND: evaluation.getUserId() is NULL !!!");
             }
             if (evaluation.getMissionId() == null) {
-                System.out.println("!!! ISSUE FOUND: evaluation.getMissionId() is NULL !!!");
+                log.info("!!! ISSUE FOUND: evaluation.getMissionId() is NULL !!!");
             }
             if (evaluation.getMissionAttemptId() == null) {
-                System.out.println("!!! ISSUE FOUND: evaluation.getMissionAttemptId() is NULL !!!");
+                log.info("!!! ISSUE FOUND: evaluation.getMissionAttemptId() is NULL !!!");
             }
             
             evaluation.setId(1L);

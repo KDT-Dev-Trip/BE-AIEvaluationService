@@ -1,0 +1,48 @@
+spring:
+  profiles:
+    active: test
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        show_sql: true
+        format_sql: true
+    database-platform: org.hibernate.dialect.H2Dialect
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  h2:
+    console:
+      enabled: true
+
+# Mock external services
+external:
+  services:
+    enabled: false
+
+# Gemini API configuration for tests
+gemini:
+  api:
+    key: test-key
+    url: https://test-api.com
+    max-retry-attempts: 3
+    retry-delay-seconds: 1
+
+# Disable kafka for tests
+spring.kafka:
+  bootstrap-servers: 
+  consumer:
+    enable-auto-commit: false
+  producer:
+    bootstrap-servers:
+
+# Logging configuration for tests
+logging:
+  level:
+    ac.su.kdt.beaievaluationservice: DEBUG
+    org.springframework.web: DEBUG
+    org.hibernate.SQL: DEBUG
